@@ -1,0 +1,194 @@
+{
+  "defaults": {
+    "keyRoot": 0,
+    "mode": "major",
+    "bars": 4,
+    "bpm": 96,
+    "seed": 1,
+    "melodyInstrument": "piano",
+    "progressionId": "royal_pop",
+    "grooveId": "strum_8beat",
+    "contourId": "arch",
+    "energy": 0.65,
+    "density": 0.6
+  },
+  "progressions": [
+    {
+      "id": "royal_pop",
+      "nameKo": "왕도 팝 진행",
+      "moodKo": "밝고 익숙한 팝 감성 (도-솔-라-파)",
+      "degrees": ["I", "V", "vi", "IV"]
+    },
+    {
+      "id": "emotional_4536",
+      "nameKo": "감성 진행",
+      "moodKo": "여운 있고 서정적인 K-팝 진행 (파-솔-미-라)",
+      "degrees": ["IV", "V", "iii", "vi"]
+    },
+    {
+      "id": "sad_6415",
+      "nameKo": "아련한 진행",
+      "moodKo": "차분하게 시작해 벅차오르는 진행 (라-파-도-솔)",
+      "degrees": ["vi", "IV", "I", "V"]
+    },
+    {
+      "id": "lofi_2516",
+      "nameKo": "재즈·로파이",
+      "moodKo": "세련된 세븐스 풍의 2-5-1-6 순환",
+      "degrees": ["ii", "V7", "I", "vi"]
+    },
+    {
+      "id": "canon",
+      "nameKo": "캐논 8마디",
+      "moodKo": "고전적인 순차 하행 진행",
+      "degrees": ["I", "V", "vi", "iii", "IV", "I", "IV", "V"]
+    }
+  ],
+  "grooves": [
+    {
+      "id": "strum_8beat",
+      "nameKo": "8비트 기타 스트럼",
+      "moodKo": "경쾌한 통기타 반주",
+      "defaultBpm": 100,
+      "kicks": [0, 6, 8],
+      "snares": [4, 12],
+      "hats": [0, 2, 4, 6, 8, 10, 12, 14],
+      "bassSteps": [0, 6, 8, 12],
+      "chordStrums": [
+        { "step": 0, "duration": 4, "direction": "down", "velocity": 0.78 },
+        { "step": 4, "duration": 2, "direction": "down", "velocity": 0.65 },
+        { "step": 6, "duration": 2, "direction": "up", "velocity": 0.52 },
+        { "step": 10, "duration": 2, "direction": "up", "velocity": 0.56 },
+        { "step": 12, "duration": 4, "direction": "down", "velocity": 0.7 }
+      ]
+    },
+    {
+      "id": "lofi_chill",
+      "nameKo": "로파이 붐뱁",
+      "moodKo": "여유롭고 따뜻한 그루브",
+      "defaultBpm": 78,
+      "kicks": [0, 7, 10],
+      "snares": [4, 12],
+      "hats": [0, 2, 4, 6, 8, 10, 12, 14],
+      "bassSteps": [0, 7, 10],
+      "chordStrums": [
+        { "step": 0, "duration": 7, "direction": "down", "velocity": 0.72 },
+        { "step": 7, "duration": 5, "direction": "up", "velocity": 0.52 },
+        { "step": 12, "duration": 4, "direction": "down", "velocity": 0.6 }
+      ]
+    },
+    {
+      "id": "ballad_arp",
+      "nameKo": "발라드 아르페지오",
+      "moodKo": "차분히 음을 뜯어 치는 서정 반주",
+      "defaultBpm": 72,
+      "kicks": [0, 8],
+      "snares": [12],
+      "hats": [0, 4, 8, 12],
+      "bassSteps": [0, 8],
+      "chordStrums": [
+        { "step": 0, "duration": 2, "direction": "arp0", "velocity": 0.68 },
+        { "step": 2, "duration": 2, "direction": "arp1", "velocity": 0.58 },
+        { "step": 4, "duration": 2, "direction": "arp2", "velocity": 0.62 },
+        { "step": 6, "duration": 2, "direction": "arp1", "velocity": 0.54 },
+        { "step": 8, "duration": 2, "direction": "arp0", "velocity": 0.66 },
+        { "step": 10, "duration": 2, "direction": "arp1", "velocity": 0.56 },
+        { "step": 12, "duration": 4, "direction": "arp2", "velocity": 0.6 }
+      ]
+    },
+    {
+      "id": "bouncy_pop",
+      "nameKo": "경쾌한 신스 팝",
+      "moodKo": "리드미컬하고 에너지 넘치는 리듬",
+      "defaultBpm": 116,
+      "kicks": [0, 4, 8, 12],
+      "snares": [4, 12],
+      "hats": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      "bassSteps": [0, 3, 6, 8, 11, 14],
+      "chordStrums": [
+        { "step": 0, "duration": 3, "direction": "down", "velocity": 0.76 },
+        { "step": 3, "duration": 3, "direction": "up", "velocity": 0.62 },
+        { "step": 8, "duration": 4, "direction": "down", "velocity": 0.74 },
+        { "step": 14, "duration": 2, "direction": "up", "velocity": 0.6 }
+      ]
+    }
+  ],
+  "contours": [
+    {
+      "id": "arch",
+      "nameKo": "아치형 곡선",
+      "descKo": "중반에 클라이맥스를 찍고 차분히 내려온다",
+      "points": [0.25, 0.55, 0.85, 0.95, 0.75, 0.5, 0.35, 0.2]
+    },
+    {
+      "id": "call_response",
+      "nameKo": "질문과 대답",
+      "descKo": "앞은 올라가며 묻고, 뒤는 내려오며 답한다",
+      "points": [0.35, 0.65, 0.55, 0.85, 0.7, 0.55, 0.4, 0.15]
+    },
+    {
+      "id": "rising_hope",
+      "nameKo": "점진적 상승",
+      "descKo": "끝으로 갈수록 음정이 높아지며 기대감을 준다",
+      "points": [0.2, 0.3, 0.4, 0.5, 0.6, 0.75, 0.85, 0.95]
+    },
+    {
+      "id": "gentle_wave",
+      "nameKo": "잔잔한 물결",
+      "descKo": "편안한 중음역에서 부드럽게 오르내린다",
+      "points": [0.45, 0.65, 0.45, 0.3, 0.55, 0.7, 0.5, 0.35]
+    }
+  ],
+  "modifiers": [
+    {
+      "id": "modal_borrow",
+      "nameKo": "아련한 대리화음 (IV -> iv)",
+      "descKo": "4번째 마디(또는 IV 도수)를 마이너로 바꿔 먹먹한 여운을 더한다",
+      "defaultEnabled": false,
+      "defaultAmount": 0.8
+    },
+    {
+      "id": "motif_repeat",
+      "nameKo": "주제 동기 반복 (Motif)",
+      "descKo": "1마디 핵심 리듬·음형을 2~3마디에 변주 복사해 기억에 남는 멜로디를 만든다",
+      "defaultEnabled": true,
+      "defaultAmount": 0.75
+    },
+    {
+      "id": "syncopation",
+      "nameKo": "당김음 그루브 (Syncopation)",
+      "descKo": "정박 음 일부를 반 박자(2스텝) 앞으로 당겨 리듬감을 살린다",
+      "defaultEnabled": false,
+      "defaultAmount": 0.6
+    },
+    {
+      "id": "passing_tones",
+      "nameKo": "매끄러운 경과음 (Passing)",
+      "descKo": "멀리 뛴 음표 사이에 스케일 연결음을 채워 노래하듯 잇는다",
+      "defaultEnabled": true,
+      "defaultAmount": 0.55
+    },
+    {
+      "id": "octave_lift",
+      "nameKo": "후반부 옥타브 리프트",
+      "descKo": "후반 마디 멜로디를 한 옥타브(또는 5도) 끌어올려 고조시킨다",
+      "defaultEnabled": false,
+      "defaultAmount": 0.7
+    },
+    {
+      "id": "cadence_resolve",
+      "nameKo": "안정적 마침표 (Cadence)",
+      "descKo": "마지막 마디 끝음을 곡의 으뜸음(도)이나 3음(미)으로 착지시킨다",
+      "defaultEnabled": true,
+      "defaultAmount": 0.9
+    }
+  ],
+  "availableDegrees": ["I", "ii", "iii", "IV", "iv", "V", "V7", "vi", "vii°"],
+  "analyzerThresholds": {
+    "minRangeSemitones": 4,
+    "largeLeapSemitones": 9,
+    "maxLargeLeapRatio": 0.35,
+    "minRestRatio": 0.12,
+    "maxSameDurationRatio": 0.82
+  }
+}
