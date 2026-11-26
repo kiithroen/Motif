@@ -15,32 +15,32 @@
   "progressions": [
     {
       "id": "royal_pop",
-      "nameKo": "왕도 팝 진행",
+      "nameKo": "밝은 팝 기본 (C-G-Am-F)",
       "moodKo": "밝고 익숙한 팝 감성 (도-솔-라-파)",
       "degrees": ["I", "V", "vi", "IV"]
     },
     {
       "id": "emotional_4536",
-      "nameKo": "감성 진행",
-      "moodKo": "여운 있고 서정적인 K-팝 진행 (파-솔-미-라)",
+      "nameKo": "서정적 K-팝 (F-G-Em-Am)",
+      "moodKo": "여운 있고 서정적인 진행 (파-솔-미-라)",
       "degrees": ["IV", "V", "iii", "vi"]
     },
     {
       "id": "sad_6415",
-      "nameKo": "아련한 진행",
+      "nameKo": "차분한 아련함 (Am-F-C-G)",
       "moodKo": "차분하게 시작해 벅차오르는 진행 (라-파-도-솔)",
       "degrees": ["vi", "IV", "I", "V"]
     },
     {
       "id": "lofi_2516",
-      "nameKo": "재즈·로파이",
-      "moodKo": "세련된 세븐스 풍의 2-5-1-6 순환",
+      "nameKo": "따뜻한 로파이 (Dm-G7-C-Am)",
+      "moodKo": "세련된 세븐스 풍의 순환",
       "degrees": ["ii", "V7", "I", "vi"]
     },
     {
       "id": "canon",
-      "nameKo": "캐논 8마디",
-      "moodKo": "고전적인 순차 하행 진행",
+      "nameKo": "파헬벨 캐논 8마디",
+      "moodKo": "고전적인 순차 하행 진행 (C-G-Am-Em-F-C-F-G)",
       "degrees": ["I", "V", "vi", "iii", "IV", "I", "IV", "V"]
     }
   ],

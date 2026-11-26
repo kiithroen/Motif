@@ -1,6 +1,7 @@
 import { type CompiledSong, previewModifierDiff } from '../core/compiler';
 import { PRESETS, type ModifierId, type NoteEvent, type SongProject, cloneProject } from '../core/model';
 import {
+  KOREAN_SOLFEGE,
   getScalePitchClasses,
   isWhiteKey,
   koreanNoteName,
@@ -64,6 +65,40 @@ export function updatePianoRollPlayhead(container: HTMLElement, activeStep: numb
   }
 }
 
+export interface FocusedPianoRollOptions {
+  showDurationPicker: boolean;
+  showUnbake?: boolean;
+  selectedDuration: number;
+  onSelectDuration: (steps: number) => void;
+  onProjectChange: (next: SongProject, recompileAudioOnly?: boolean) => void;
+  onAuditionPitch: (midi: number) => void;
+}
+
+export function renderFocusedPianoRoll(
+  container: HTMLElement,
+  project: SongProject,
+  compiled: CompiledSong,
+  activeStep: number,
+  options: FocusedPianoRollOptions
+): void {
+  const prevScrollLeft = container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0;
+  container.innerHTML = renderL3Body(project, compiled, activeStep, options.selectedDuration, {
+    showDurationPicker: options.showDurationPicker,
+    showUnbake: Boolean(options.showUnbake),
+  });
+  const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
+  if (scrollEl && prevScrollLeft > 0) {
+    scrollEl.scrollLeft = prevScrollLeft;
+  }
+  wireL3Events(container, project, compiled, {
+    selectedDuration: options.selectedDuration,
+    onSelectDuration: options.onSelectDuration,
+    onProjectChange: options.onProjectChange,
+    onAuditionPitch: options.onAuditionPitch,
+    onPreviewModifier: () => {},
+  });
+}
+
 export function renderLayerEditor(
   container: HTMLElement,
   project: SongProject,
@@ -108,7 +143,10 @@ export function renderLayerEditor(
     return;
   }
 
-  container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration);
+  container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration, {
+    showDurationPicker: true,
+    showUnbake: false,
+  });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
     scrollEl.scrollLeft = prevScrollLeft;
@@ -182,11 +220,11 @@ function renderL1Body(project: SongProject): string {
     <div class="card-grid">${contours}</div>
     <div class="sliders-row">
       <div class="slider-box">
-        <div class="slider-label"><span>반주 에너지</span><span id="energy-val">${Math.round(project.blocks.energy * 100)}%</span></div>
+        <div class="slider-label"><span>반주 세기 (강약)</span><span id="energy-val">${Math.round(project.blocks.energy * 100)}%</span></div>
         <input id="sl-energy" type="range" min="0.2" max="1" step="0.05" value="${project.blocks.energy}" />
       </div>
       <div class="slider-box">
-        <div class="slider-label"><span>음표 밀도 (박자 쪼개기)</span><span>${Math.round(project.blocks.density * 100)}%</span></div>
+        <div class="slider-label"><span>멜로디 음 수 (듬성↔촘촘)</span><span>${Math.round(project.blocks.density * 100)}%</span></div>
         <input id="sl-density" type="range" min="0.2" max="1" step="0.05" value="${project.blocks.density}" />
       </div>
     </div>
@@ -344,7 +382,8 @@ function renderL3Body(
   project: SongProject,
   compiled: CompiledSong,
   activeStep: number,
-  selectedDuration: number
+  selectedDuration: number,
+  opts: { showDurationPicker: boolean; showUnbake: boolean } = { showDurationPicker: true, showUnbake: false }
 ): string {
   const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
   const svgW = compiled.totalSteps * STEP_W;
@@ -390,18 +429,25 @@ function renderL3Body(
   }
 
   const barHeaderCells = compiled.resolvedChords
-    .map(
-      (rc, idx) =>
-        `<div class="pr-bar-cell" style="width:${barWidth}px"><span>${idx + 1}마디</span><strong>${rc.symbol}</strong></div>`
-    )
+    .map((rc, idx) => {
+      const tones = rc.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
+      return `<div class="pr-bar-cell" style="width:${barWidth}px"><span>${idx + 1}마디</span><strong>${rc.symbol} (${tones})</strong></div>`;
+    })
     .join('');
 
-  const durationButtons = PRESETS.noteDurationOptions
-    .map(
-      (opt) =>
-        `<button class="btn btn-chip${opt.steps === selectedDuration ? ' active' : ''}" data-duration="${opt.steps}" type="button">${opt.labelKo}</button>`
-    )
-    .join('');
+  const durationButtons = opts.showDurationPicker
+    ? `
+        <div class="pr-duration-group">
+          <span>음표 길이</span>
+          ${PRESETS.noteDurationOptions
+            .map(
+              (opt) =>
+                `<button class="btn btn-chip${opt.steps === selectedDuration ? ' active' : ''}" data-duration="${opt.steps}" type="button">${opt.labelKo}</button>`
+            )
+            .join('')}
+        </div>
+      `
+    : '';
 
   let noteRects = '';
   for (const n of compiled.melody) {
@@ -438,10 +484,7 @@ function renderL3Body(
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
         </div>
-        <div class="pr-duration-group">
-          <span>음표 길이</span>
-          ${durationButtons}
-        </div>
+        ${durationButtons}
         <span>빈 칸 클릭: 음 추가 · 음표 클릭: 삭제 · PC 건반(A~K)</span>
       </div>
       <div class="pr-container">

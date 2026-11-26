@@ -1,16 +1,16 @@
 # Motif 아키텍처
 
-## 3단 추상화 모델
+## 3단 학습 모드 및 추상화 구조
 
-| 층 | 데이터 구조 | 사용자 조작 | 전이 |
+| 모드 / 층 | 데이터 구조 | 사용자 조작 | 전이 |
 |---|---|---|---|
-| **L1. 블록 층** | `L1Blocks` (진행, 그루브, 윤곽, 에너지, 밀도) | 감정·분위기 단위 고수준 블록 선택 및 슬라이더 조절 | `L2로 펼치기(unpackBlocksToChain)` |
-| **L2. 변형 체인 층** | `L2Chain` (마디별 `ChordSlot` 배열 + `ModifierState[]` 체인) | 코드 도수 교체, 변형 카드 온/오프·강도 조절, 전/후 diff 미리듣기 | `L3로 굽기(bake)` |
-| **L3. 음표 층** | `NoteEvent[]` (`bakedMelody` 및 반주 트랙) | 2옥타브 피아노롤 직접 편집, 음표 길이 선택, 마디별 코드톤 가이드, 되돌리기/다시 실행 | `L2에서 다시 굽기` 또는 이론 분석기 역분석 |
+| **기초 입문 (7강)** | `BasicLessonDefinition` (`basics.json`) | A/B 소리 비교, 원리 카드, 건반 선택·집중 피아노롤·코드 교체·캐논 편곡 | `실전 미션` 또는 `자유 스케치`로 편곡 내보내기 |
+| **실전 미션 (6강)** | `LessonDefinition` (`lessons.json`) | L1/L2/L3 샌드박스 위에서 퍼즐 목표·이론 코치 체크리스트 달성 | `자유 스케치`와 진행도 분리 저장 |
+| **자유 스케치 (L1→L2→L3)** | `L1Blocks` → `L2Chain` → `NoteEvent[]` | 블록 조립, 변형 체인 전/후 비교, 2옥타브 피아노롤 직접 편집 | 상단 탭·버튼으로 층 간 왕복 |
 
 ## 모듈 분리
 
-- `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 6단계 마이크로 작곡 레슨 커리큘럼(`lessons.json`).
-- `src/core/`: DOM·오디오 비의존 순수 로직(`theory.ts`, `model.ts`, `compiler.ts`, `analyzer.ts`, `history.ts`, `lesson.ts`, `midi.ts`).
+- `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 7강 기초 원리·클래식 해부 커리큘럼(`basics.json`), 6강 실전 미션 커리큘럼(`lessons.json`).
+- `src/core/`: DOM·오디오 비의존 순수 로직(`theory.ts`, `model.ts`, `compiler.ts`, `analyzer.ts`, `history.ts`, `basics.ts`, `lesson.ts`, `midi.ts`).
 - `src/audio/`: WebAudio 합성기(`instruments.ts`: 룸 리버브·컴프레서·Karplus-Strong 기타·FM 피아노·베이스·드럼)와 원본 곡 보존형 룩어헤드 스케줄러(`transport.ts`).
-- `src/ui/`: 기타 코드 다이어그램 스트립 및 활성 마디 갱신(`guitarStrip.ts`), L1/L2/L3 에디터 및 플레이헤드 갱신(`layers.ts`), 이론 코치 패널(`coachPanel.ts`), 레슨 미션 배너(`lessonPanel.ts`).
+- `src/ui/`: 집중 기초 학습 뷰(`basicsView.ts`), 실전 미션 배너(`lessonPanel.ts`), 기타 코드 다이어그램 스트립(`guitarStrip.ts`), L1/L2/L3 및 집중 피아노롤(`layers.ts`), 이론 코치 패널(`coachPanel.ts`).

@@ -1,7 +1,7 @@
 import type { ResolvedChord } from '../core/theory';
 import { getGuitarDiagram } from '../core/theory';
 
-function buildChordDiagramSvg(chord: ResolvedChord): string {
+export function buildChordDiagramSvg(chord: ResolvedChord): string {
   const diag = getGuitarDiagram(chord);
   const w = 74;
   const h = 68;

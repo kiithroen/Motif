@@ -1,0 +1,677 @@
+[
+  {
+    "id": "c1_chord_clash",
+    "order": 1,
+    "categoryKo": "기초 원리",
+    "titleKo": "화음은 왜 어울리고 왜 부딪힐까?",
+    "subtitleKo": "기타 코드 구성음과 '반음(1칸) 옆 음'의 차이를 먼저 귀로 구별해 보자.",
+    "compareDemos": [
+      {
+        "id": "demo_c1_good",
+        "labelKo": "A. 어울리는 음 (C 코드 + 미)",
+        "badgeKo": "어울림",
+        "tone": "good",
+        "descKo": "C 코드는 '도·미·솔' 세 음으로 이뤄져 있다. 그중 하나인 '미'를 얹으면 반주와 자연스럽게 녹아든다.",
+        "bpm": 84,
+        "mode": "major",
+        "grooveId": "ballad_arp",
+        "chords": ["I", "I"],
+        "melody": [
+          { "id": "d1a_1", "midi": 64, "step": 0, "duration": 16, "velocity": 0.85 },
+          { "id": "d1a_2", "midi": 64, "step": 16, "duration": 12, "velocity": 0.8 }
+        ]
+      },
+      {
+        "id": "demo_c1_warn",
+        "labelKo": "B. 부딪히는 음 (C 코드 + 파)",
+        "badgeKo": "충돌",
+        "tone": "warn",
+        "descKo": "'파'는 C 코드의 '미' 바로 옆 반음(1칸) 차이 음이다. 첫 박자에 길게 누르면 두 음이 떨리며 날카롭게 부딪힌다.",
+        "bpm": 84,
+        "mode": "major",
+        "grooveId": "ballad_arp",
+        "chords": ["I", "I"],
+        "melody": [
+          { "id": "d1b_1", "midi": 65, "step": 0, "duration": 16, "velocity": 0.85 },
+          { "id": "d1b_2", "midi": 65, "step": 16, "duration": 12, "velocity": 0.8 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "기타 코드 한 개 = 3개의 약속된 음",
+        "bodyKo": "기타에서 C 코드를 잡으면 6줄에서 여러 음이 나지만 실제로는 '도·미·솔' 세 음만 겹쳐 울린다. 이 세 음을 C 코드의 구성음(코드톤)이라고 한다.",
+        "chips": ["C = 도 · 미 · 솔", "G = 솔 · 시 · 레", "Am = 라 · 도 · 미", "F = 파 · 라 · 도"]
+      },
+      {
+        "headingKo": "왜 반음(1칸) 옆이 부딪힐까?",
+        "bodyKo": "피아노 건반에서 바로 붙은 '미-파'나 '시-도'를 강박에서 동시에 길게 치면 진동수가 좁게 겹쳐 귀가 불안함을 느낀다. 반대로 구성음 위에서는 안정감을 느낀다."
+      }
+    ],
+    "workspaceKind": "chord_tone_pick",
+    "goalSummaryKo": "1마디(C)와 2마디(G)에 지금 걸려 있는 충돌음('파', '도') 대신, 각 코드의 구성음 하나씩을 직접 골라 어울리게 고쳐 보자.",
+    "hintKo": "1마디 C 카드를 누른 상태에서 도·미·솔 중 하나를 고르고, 2마디 G 카드를 눌러 솔·시·레 중 하나를 골라 보자.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 84,
+      "mode": "major",
+      "grooveId": "ballad_arp",
+      "chordOverrides": ["I", "V", "I", "V"],
+      "baked": true,
+      "bakedMelody": [
+        { "id": "c1_b0", "midi": 65, "step": 0, "duration": 12, "velocity": 0.84, "origin": "user" },
+        { "id": "c1_b1", "midi": 72, "step": 16, "duration": 12, "velocity": 0.84, "origin": "user" },
+        { "id": "c1_b2", "midi": 64, "step": 32, "duration": 12, "velocity": 0.8, "origin": "base" },
+        { "id": "c1_b3", "midi": 67, "step": 48, "duration": 12, "velocity": 0.8, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bar_downbeat_chord_tones",
+        "bars": [0, 1],
+        "labelKo": "1마디(C)와 2마디(G)에 각 코드의 구성음 배치하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "화음 충돌음 모두 없애기"
+      }
+    ]
+  },
+  {
+    "id": "c2_skeleton",
+    "order": 2,
+    "categoryKo": "기초 원리",
+    "titleKo": "빈 반주 위에 '뼈대 음' 4개로 첫 멜로디 만들기",
+    "subtitleKo": "멜로디는 아무 음이나 찍는 게 아니라, 마디 첫 박자에 코드 구성음 1개씩 세우는 데서 시작한다.",
+    "compareDemos": [
+      {
+        "id": "demo_c2_empty",
+        "labelKo": "A. 반주만 울릴 때",
+        "badgeKo": "반주만",
+        "tone": "neutral",
+        "descKo": "C - G - Am - F 반주만 반복된다. 아직 노래의 중심이 될 멜로디 뼈대가 없다.",
+        "bpm": 88,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": []
+      },
+      {
+        "id": "demo_c2_skel",
+        "labelKo": "B. 마디당 뼈대 1음씩만 얹었을 때",
+        "badgeKo": "뼈대 4음",
+        "tone": "good",
+        "descKo": "음표 딱 4개(미 - 레 - 도 - 라)만 마디 첫 박자에 놓아도 벌써 곡의 윤곽이 들린다.",
+        "bpm": 88,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d2b_1", "midi": 64, "step": 0, "duration": 8, "velocity": 0.84 },
+          { "id": "d2b_2", "midi": 62, "step": 16, "duration": 8, "velocity": 0.84 },
+          { "id": "d2b_3", "midi": 60, "step": 32, "duration": 8, "velocity": 0.84 },
+          { "id": "d2b_4", "midi": 69, "step": 48, "duration": 8, "velocity": 0.84 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "완성된 멜로디를 한 번에 쓰려 하지 않기",
+        "bodyKo": "작곡은 보통 코드가 바뀌는 마디 첫 박자에 안정적인 구성음(피아노롤의 연한 초록색 칸)을 하나씩 세워 '뼈대'를 잡는 것부터 시작한다."
+      },
+      {
+        "headingKo": "옆으로 가까운 음을 고르면 부드럽다",
+        "bodyKo": "1마디 C에서 '미'를 골랐다면, 2마디 G에서는 바로 아래 '레'나 위 '솔'처럼 가까운 구성음을 고를수록 자연스럽게 이어진다."
+      }
+    ],
+    "workspaceKind": "piano_roll",
+    "showDurationPicker": false,
+    "goalSummaryKo": "완전히 비어 있는 4마디(C-G-Am-F) 피아노롤에서 각 마디의 맨 첫 칸(초록색 가이드 칸)에 내 취향대로 음을 1개씩 찍어 보자.",
+    "hintKo": "1마디(C), 2마디(G), 3마디(Am), 4마디(F)의 가장 왼쪽 첫 세로줄에서 연한 초록색으로 표시된 칸을 한 칸씩 클릭한다.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 88,
+      "mode": "major",
+      "grooveId": "strum_8beat",
+      "progressionId": "royal_pop",
+      "baked": true,
+      "bakedMelody": []
+    },
+    "rules": [
+      {
+        "type": "bar_downbeat_chord_tones",
+        "bars": [0, 1, 2, 3],
+        "labelKo": "1~4마디 첫 박자에 코드 구성음(초록 칸) 1개씩 배치하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "부딪히는 충돌음 없이 유지하기"
+      }
+    ]
+  },
+  {
+    "id": "c3_passing_step",
+    "order": 3,
+    "categoryKo": "기초 원리",
+    "titleKo": "뼈대 사이를 계단처럼 잇기 (지나가는 음)",
+    "subtitleKo": "1강에서 부딪히던 '파·레' 같은 음도, 약한 박자에서 징검다리처럼 짧게 지나가면 노래가 살아난다.",
+    "compareDemos": [
+      {
+        "id": "demo_c3_bare",
+        "labelKo": "A. 뼈대 음 4개만 있을 때",
+        "badgeKo": "뼈대만",
+        "tone": "neutral",
+        "descKo": "미 → 솔 → 도5 → 라 로 큰 폭으로만 움직여 다소 뚝뚝 끊겨 들린다.",
+        "bpm": 90,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d3a_1", "midi": 64, "step": 0, "duration": 6, "velocity": 0.82 },
+          { "id": "d3a_2", "midi": 67, "step": 16, "duration": 6, "velocity": 0.82 },
+          { "id": "d3a_3", "midi": 72, "step": 32, "duration": 6, "velocity": 0.82 },
+          { "id": "d3a_4", "midi": 69, "step": 48, "duration": 8, "velocity": 0.82 }
+        ]
+      },
+      {
+        "id": "demo_c3_pass",
+        "labelKo": "B. 사이를 계단 음으로 이었을 때",
+        "badgeKo": "계단 연결",
+        "tone": "good",
+        "descKo": "미-(파)-솔, 솔-(라-시)-도5 처럼 뼈대 사이에 짧은 연결음을 넣으면 사람 목소리처럼 매끄럽게 이어진다.",
+        "bpm": 90,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d3b_1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.84 },
+          { "id": "d3b_2", "midi": 65, "step": 10, "duration": 2, "velocity": 0.72 },
+          { "id": "d3b_3", "midi": 67, "step": 16, "duration": 4, "velocity": 0.84 },
+          { "id": "d3b_4", "midi": 69, "step": 22, "duration": 2, "velocity": 0.74 },
+          { "id": "d3b_5", "midi": 71, "step": 26, "duration": 2, "velocity": 0.74 },
+          { "id": "d3b_6", "midi": 72, "step": 32, "duration": 6, "velocity": 0.84 },
+          { "id": "d3b_7", "midi": 69, "step": 48, "duration": 8, "velocity": 0.84 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "지나가는 음(경과음)은 약한 박자에 짧게",
+        "bodyKo": "1강에서 C 코드와 부딪혔던 '파'도, '미'와 '솔' 사이 약한 박자(점선 세로줄 사이)에 2칸짜리로 짧게 넣으면 귀에 걸리지 않고 다리 역할을 한다."
+      },
+      {
+        "headingKo": "파란 음표 = 음계 안의 연결음",
+        "bodyKo": "피아노롤에서 초록색은 코드톤, 파란색은 도레미파솔라시 안에서 자연스럽게 이어주는 연결음이다."
+      }
+    ],
+    "workspaceKind": "piano_roll",
+    "showDurationPicker": false,
+    "goalSummaryKo": "이미 놓인 4개의 뼈대 음은 그대로 두고, 마디 안의 빈 박자(약박)에 계단처럼 이어주는 음표를 2개 이상 추가해 보자.",
+    "hintKo": "1마디 '미'와 2마디 '솔' 사이 중간 칸(10번째 칸 부근)에 '파'를 찍고, 2마디 후반에도 '라'나 '시'를 하나 찍어 보자.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 90,
+      "mode": "major",
+      "grooveId": "strum_8beat",
+      "progressionId": "royal_pop",
+      "baked": true,
+      "bakedMelody": [
+        { "id": "c3_n1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "c3_n2", "midi": 67, "step": 16, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "c3_n3", "midi": 72, "step": 32, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "c3_n4", "midi": 69, "step": 48, "duration": 6, "velocity": 0.84, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bar_downbeat_chord_tones",
+        "bars": [0, 1, 2, 3],
+        "labelKo": "1~4마디 첫 박자 뼈대 음 유지하기"
+      },
+      {
+        "type": "min_non_downbeat_scale_notes",
+        "minCount": 2,
+        "labelKo": "뼈대 사이 박자에 연결음 2개 이상 추가하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "강박 충돌음 없이 연결하기"
+      }
+    ]
+  },
+  {
+    "id": "c4_rhythm_rest",
+    "order": 4,
+    "categoryKo": "기초 원리",
+    "titleKo": "같은 도레미도 리듬과 쉼표로 노래가 된다",
+    "subtitleKo": "음이 계속 똑같은 길이로 꽉 차 있으면 기계처럼 들린다. 길고 짧음과 숨 쉴 여백을 만들어 보자.",
+    "compareDemos": [
+      {
+        "id": "demo_c4_flat",
+        "labelKo": "A. 모두 똑같은 길이, 쉼표 0%",
+        "badgeKo": "단조로움",
+        "tone": "warn",
+        "descKo": "모든 음이 똑같이 2박씩 쉼표 없이 이어져 답답하고 기계적으로 들린다.",
+        "bpm": 96,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d4a_1", "midi": 64, "step": 0, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_2", "midi": 67, "step": 8, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_3", "midi": 67, "step": 16, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_4", "midi": 71, "step": 24, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_5", "midi": 69, "step": 32, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_6", "midi": 72, "step": 40, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_7", "midi": 65, "step": 48, "duration": 8, "velocity": 0.8 },
+          { "id": "d4a_8", "midi": 72, "step": 56, "duration": 8, "velocity": 0.8 }
+        ]
+      },
+      {
+        "id": "demo_c4_breath",
+        "labelKo": "B. 길이를 섞고 쉼표를 남겼을 때",
+        "badgeKo": "리듬감",
+        "tone": "good",
+        "descKo": "짧은 음 뒤에 긴 음이 오고 마디 끝에 숨 쉴 틈이 생기니 훨씬 노래답다.",
+        "bpm": 96,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d4b_1", "midi": 64, "step": 0, "duration": 2, "velocity": 0.82 },
+          { "id": "d4b_2", "midi": 67, "step": 4, "duration": 4, "velocity": 0.84 },
+          { "id": "d4b_3", "midi": 67, "step": 16, "duration": 4, "velocity": 0.82 },
+          { "id": "d4b_4", "midi": 71, "step": 22, "duration": 4, "velocity": 0.84 },
+          { "id": "d4b_5", "midi": 69, "step": 32, "duration": 2, "velocity": 0.82 },
+          { "id": "d4b_6", "midi": 72, "step": 36, "duration": 4, "velocity": 0.84 },
+          { "id": "d4b_7", "midi": 72, "step": 48, "duration": 8, "velocity": 0.86 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "음표 길이를 2종류 이상 섞기",
+        "bodyKo": "짧은 8분음표(2칸)와 기본 4분음표(4칸), 길게 끄는 2분음표(8칸)가 번갈아 나와야 리듬에 표정이 생긴다."
+      },
+      {
+        "headingKo": "쉼표도 음악의 일부다",
+        "bodyKo": "말할 때 문장 사이에 숨을 쉬듯, 마디 뒷부분을 비워 둬야 방금 들은 멜로디가 머리에 남는다."
+      }
+    ],
+    "workspaceKind": "piano_roll",
+    "showDurationPicker": true,
+    "goalSummaryKo": "지금 모든 칸이 똑같은 2분(8칸) 음표로 꽉 차 있다. 음표 2개 이상을 지워 쉼표를 만들고, 상단 '음표 길이'를 바꿔 다른 길이의 음표도 섞어 보자.",
+    "hintKo": "먼저 긴 초록 음표 2개 정도를 클릭해 지워 여백을 만든 뒤, 상단 '음표 길이'에서 '8분 (2칸)' 또는 '4분 (4칸)'을 골라 빈 자리에 1~2개 찍어 보자.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 96,
+      "mode": "major",
+      "grooveId": "strum_8beat",
+      "progressionId": "royal_pop",
+      "baked": true,
+      "bakedMelody": [
+        { "id": "c4_1", "midi": 64, "step": 0, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_2", "midi": 67, "step": 8, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_3", "midi": 67, "step": 16, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_4", "midi": 71, "step": 24, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_5", "midi": 69, "step": 32, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_6", "midi": 72, "step": 40, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_7", "midi": 65, "step": 48, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "c4_8", "midi": 72, "step": 56, "duration": 8, "velocity": 0.82, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "min_distinct_durations",
+        "minCount": 2,
+        "labelKo": "음표 길이를 2종류 이상 섞어 쓰기"
+      },
+      {
+        "type": "min_rest_ratio",
+        "minRatio": 0.15,
+        "labelKo": "전체 길이의 15% 이상을 쉼표(빈 공간)로 남기기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "충돌음 없이 유지하기"
+      }
+    ]
+  },
+  {
+    "id": "c5_ode_cadence",
+    "order": 5,
+    "categoryKo": "클래식 해부",
+    "titleKo": "베토벤 「환희의 송가」 해부: 질문과 마침표",
+    "subtitleKo": "명곡도 결국 도·레·미·파·솔 5개 음의 계단 이동과 끝음(종지) 하나로 감정을 만든다.",
+    "compareDemos": [
+      {
+        "id": "demo_c5_open",
+        "labelKo": "A. 전반 4마디 · 이어질 듯한 '질문' 끝맺음",
+        "badgeKo": "질문 (레 끝)",
+        "tone": "warn",
+        "descKo": "마지막 음이 '레'에 멈춰 있어서 뒷부분이 더 나올 것 같은 긴장감(반종지)이 남는다.",
+        "bpm": 104,
+        "mode": "major",
+        "grooveId": "ballad_arp",
+        "chords": ["I", "V", "I", "V"],
+        "melody": [
+          { "id": "d5a_1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.82 },
+          { "id": "d5a_2", "midi": 64, "step": 4, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_3", "midi": 65, "step": 8, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_4", "midi": 67, "step": 12, "duration": 4, "velocity": 0.84 },
+          { "id": "d5a_5", "midi": 67, "step": 16, "duration": 4, "velocity": 0.84 },
+          { "id": "d5a_6", "midi": 65, "step": 20, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_7", "midi": 64, "step": 24, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_8", "midi": 62, "step": 28, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_9", "midi": 60, "step": 32, "duration": 4, "velocity": 0.84 },
+          { "id": "d5a_10", "midi": 60, "step": 36, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_11", "midi": 62, "step": 40, "duration": 4, "velocity": 0.8 },
+          { "id": "d5a_12", "midi": 64, "step": 44, "duration": 4, "velocity": 0.82 },
+          { "id": "d5a_13", "midi": 64, "step": 48, "duration": 6, "velocity": 0.84 },
+          { "id": "d5a_14", "midi": 62, "step": 54, "duration": 2, "velocity": 0.76 },
+          { "id": "d5a_15", "midi": 62, "step": 56, "duration": 8, "velocity": 0.84 }
+        ]
+      },
+      {
+        "id": "demo_c5_close",
+        "labelKo": "B. 후반 4마디 · 깔끔한 '마침표' 끝맺음",
+        "badgeKo": "마침표 (도 끝)",
+        "tone": "good",
+        "descKo": "마지막 두 음만 '레-도'로 바꾸면 곡이 집으로 돌아온 것처럼 딱 닫힌다(정격종지).",
+        "bpm": 104,
+        "mode": "major",
+        "grooveId": "ballad_arp",
+        "chords": ["I", "V", "I", "I"],
+        "melody": [
+          { "id": "d5b_1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.82 },
+          { "id": "d5b_2", "midi": 64, "step": 4, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_3", "midi": 65, "step": 8, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_4", "midi": 67, "step": 12, "duration": 4, "velocity": 0.84 },
+          { "id": "d5b_5", "midi": 67, "step": 16, "duration": 4, "velocity": 0.84 },
+          { "id": "d5b_6", "midi": 65, "step": 20, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_7", "midi": 64, "step": 24, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_8", "midi": 62, "step": 28, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_9", "midi": 60, "step": 32, "duration": 4, "velocity": 0.84 },
+          { "id": "d5b_10", "midi": 60, "step": 36, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_11", "midi": 62, "step": 40, "duration": 4, "velocity": 0.8 },
+          { "id": "d5b_12", "midi": 64, "step": 44, "duration": 4, "velocity": 0.82 },
+          { "id": "d5b_13", "midi": 62, "step": 48, "duration": 6, "velocity": 0.84 },
+          { "id": "d5b_14", "midi": 60, "step": 54, "duration": 2, "velocity": 0.78 },
+          { "id": "d5b_15", "midi": 60, "step": 56, "duration": 8, "velocity": 0.86 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "도·레·미·파·솔 5음만으로 만든 명곡",
+        "bodyKo": "큰 도약 없이 거의 모든 음이 한 칸씩 계단으로만 오르내려 누구나 한 번 들으면 따라 부를 수 있다."
+      },
+      {
+        "headingKo": "4마디 질문(레) → 4마디 대답(도) 구조",
+        "bodyKo": "앞 프레이즈를 '레'로 열어 두고 뒤 프레이즈를 으뜸음 '도'로 닫는 질문-대답 구조는 클래식과 팝 모두에서 가장 널리 쓰인다."
+      }
+    ],
+    "annotations": [
+      { "barLabelKo": "1마디 (C)", "textKo": "미-미-파-솔 : 한 계단씩 올라가며 기대감을 연다" },
+      { "barLabelKo": "2마디 (G)", "textKo": "솔-파-미-레 : 거꾸로 계단을 내려오며 숨을 고른다" },
+      { "barLabelKo": "3마디 (C)", "textKo": "도-도-레-미 : 맨 아래 도에서 다시 출발한다" },
+      { "barLabelKo": "4마디 (C)", "textKo": "지금 '레'로 열려 있는 끝음을 '도'로 바꿔 마침표를 찍자" }
+    ],
+    "workspaceKind": "piano_roll",
+    "showDurationPicker": false,
+    "goalSummaryKo": "4마디 맨 끝의 '레4' 음표를 지우고, 그 자리(4마디 후반부)에 으뜸음 '도4' 또는 '도5'를 찍어 마침표로 완성해 보자.",
+    "hintKo": "4마디 맨 오른쪽 길게 있는 '레4(D4)' 파란 음표를 클릭해 지운 뒤, 맨 아래 줄인 '도4(C4)' 초록색 칸에 새 음표를 찍는다.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 104,
+      "mode": "major",
+      "grooveId": "ballad_arp",
+      "chordOverrides": ["I", "V", "I", "I"],
+      "baked": true,
+      "bakedMelody": [
+        { "id": "ode_1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.82, "origin": "base" },
+        { "id": "ode_2", "midi": 64, "step": 4, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_3", "midi": 65, "step": 8, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_4", "midi": 67, "step": 12, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "ode_5", "midi": 67, "step": 16, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "ode_6", "midi": 65, "step": 20, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_7", "midi": 64, "step": 24, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_8", "midi": 62, "step": 28, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_9", "midi": 60, "step": 32, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "ode_10", "midi": 60, "step": 36, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_11", "midi": 62, "step": 40, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "ode_12", "midi": 64, "step": 44, "duration": 4, "velocity": 0.82, "origin": "base" },
+        { "id": "ode_13", "midi": 64, "step": 48, "duration": 6, "velocity": 0.84, "origin": "base" },
+        { "id": "ode_14", "midi": 62, "step": 54, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "ode_15", "midi": 62, "step": 56, "duration": 8, "velocity": 0.84, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "last_note_pc",
+        "allowedPcs": [0],
+        "labelKo": "마지막 음을 곡의 으뜸음 '도(C)'로 끝내기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "weak_cadence",
+        "labelKo": "열린 종지 경고 해소하기"
+      }
+    ]
+  },
+  {
+    "id": "c6_chord_color",
+    "order": 6,
+    "categoryKo": "기초 원리",
+    "titleKo": "코드 1개 바꿔 분위기 뒤집기 (F → Fm)",
+    "subtitleKo": "같은 멜로디 아래에서 마지막 코드의 음 1개만 반음 내렸을 때 감정이 어떻게 변하는지 들어보자.",
+    "compareDemos": [
+      {
+        "id": "demo_c6_bright",
+        "labelKo": "A. C - G - Am - F (밝고 담백한 진행)",
+        "badgeKo": "밝음",
+        "tone": "neutral",
+        "descKo": "4번째 마디가 메이저 F(파·라·도)로 끝나면 희망차고 담백한 느낌을 준다.",
+        "bpm": 90,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "IV"],
+        "melody": [
+          { "id": "d6a_1", "midi": 64, "step": 0, "duration": 6, "velocity": 0.82 },
+          { "id": "d6a_2", "midi": 67, "step": 8, "duration": 6, "velocity": 0.8 },
+          { "id": "d6a_3", "midi": 67, "step": 16, "duration": 6, "velocity": 0.82 },
+          { "id": "d6a_4", "midi": 71, "step": 24, "duration": 6, "velocity": 0.8 },
+          { "id": "d6a_5", "midi": 72, "step": 32, "duration": 6, "velocity": 0.82 },
+          { "id": "d6a_6", "midi": 69, "step": 40, "duration": 6, "velocity": 0.8 },
+          { "id": "d6a_7", "midi": 72, "step": 48, "duration": 12, "velocity": 0.84 }
+        ]
+      },
+      {
+        "id": "demo_c6_minor",
+        "labelKo": "B. C - G - Am - Fm (아련하고 먹먹한 여운)",
+        "badgeKo": "아련함",
+        "tone": "good",
+        "descKo": "4번째 마디 F(파·라·도)에서 '라'만 반음 내린 Fm(파·라♭·도)으로 바꾸면 가슴이 찡한 여운이 남는다.",
+        "bpm": 90,
+        "mode": "major",
+        "grooveId": "strum_8beat",
+        "chords": ["I", "V", "vi", "iv"],
+        "melody": [
+          { "id": "d6b_1", "midi": 64, "step": 0, "duration": 6, "velocity": 0.82 },
+          { "id": "d6b_2", "midi": 67, "step": 8, "duration": 6, "velocity": 0.8 },
+          { "id": "d6b_3", "midi": 67, "step": 16, "duration": 6, "velocity": 0.82 },
+          { "id": "d6b_4", "midi": 71, "step": 24, "duration": 6, "velocity": 0.8 },
+          { "id": "d6b_5", "midi": 72, "step": 32, "duration": 6, "velocity": 0.82 },
+          { "id": "d6b_6", "midi": 69, "step": 40, "duration": 6, "velocity": 0.8 },
+          { "id": "d6b_7", "midi": 72, "step": 48, "duration": 12, "velocity": 0.84 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "왜 C-G-Am-F 를 '1-5-6-4 진행'이라고 부를까?",
+        "bodyKo": "으뜸음 '도'를 1번(I), '레'를 2번(ii), '미'를 3번(iii), '파'를 4번(IV), '솔'을 5번(V), '라'를 6번(vi)으로 번호 매기면 어느 키로 옮겨도 같은 느낌을 재현할 수 있다."
+      },
+      {
+        "headingKo": "대리화음(모달 인터체인지)의 원리",
+        "bodyKo": "원래 C 장조에 없는 Fm(iv) 코드를 잠깐 빌려 오면, F의 '라'가 Fm의 '라♭'으로 한 칸 미끄러지며 아련한 색채가 덧입혀진다."
+      }
+    ],
+    "workspaceKind": "chord_swap",
+    "goalSummaryKo": "아래 4개 코드 카드 중 4번째 마디의 'F' 코드를 'Fm (iv)' 로 바꿔 소리 변화를 들어 보자.",
+    "hintKo": "4마디 코드 카드 아래 선택 버튼에서 'Fm (iv)' 버튼을 누르면 코드가 바뀌며 소리가 바로 울린다.",
+    "initialProject": {
+      "bars": 4,
+      "bpm": 90,
+      "mode": "major",
+      "grooveId": "strum_8beat",
+      "progressionId": "royal_pop",
+      "baked": true,
+      "bakedMelody": [
+        { "id": "c6_1", "midi": 64, "step": 0, "duration": 6, "velocity": 0.82, "origin": "base" },
+        { "id": "c6_2", "midi": 67, "step": 8, "duration": 6, "velocity": 0.8, "origin": "base" },
+        { "id": "c6_3", "midi": 67, "step": 16, "duration": 6, "velocity": 0.82, "origin": "base" },
+        { "id": "c6_4", "midi": 71, "step": 24, "duration": 6, "velocity": 0.8, "origin": "base" },
+        { "id": "c6_5", "midi": 72, "step": 32, "duration": 6, "velocity": 0.82, "origin": "base" },
+        { "id": "c6_6", "midi": 69, "step": 40, "duration": 6, "velocity": 0.8, "origin": "base" },
+        { "id": "c6_7", "midi": 72, "step": 48, "duration": 12, "velocity": 0.84, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bar_chord_degree",
+        "barIndex": 3,
+        "degree": "iv",
+        "labelKo": "4번째 마디 코드를 Fm (iv)으로 바꾸기"
+      }
+    ]
+  },
+  {
+    "id": "c7_canon_arrange",
+    "order": 7,
+    "categoryKo": "클래식 편곡",
+    "titleKo": "파헬벨 「캐논」 해부 & 내 스타일로 편곡하기",
+    "subtitleKo": "300년 넘게 사랑받는 8마디 코드 뼈대를 뜯어보고, 리듬과 분위기·음표를 바꿔 내 버전으로 편곡해 보자.",
+    "compareDemos": [
+      {
+        "id": "demo_c7_orig",
+        "labelKo": "A. 원곡 느낌 (장조 · 발라드 아르페지오)",
+        "badgeKo": "원곡 뼈대",
+        "tone": "neutral",
+        "descKo": "맑은 장조 코드 위에 '미5-레5-도5-시4-라4-솔4-라4-시4'로 차분히 내려오는 고전 캐논의 흐름이다.",
+        "bpm": 76,
+        "mode": "major",
+        "grooveId": "ballad_arp",
+        "chords": ["I", "V", "vi", "iii", "IV", "I", "IV", "V"],
+        "melody": [
+          { "id": "d7a_1", "midi": 76, "step": 0, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_2", "midi": 72, "step": 8, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_3", "midi": 74, "step": 16, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_4", "midi": 71, "step": 24, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_5", "midi": 72, "step": 32, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_6", "midi": 69, "step": 40, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_7", "midi": 71, "step": 48, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_8", "midi": 67, "step": 56, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_9", "midi": 69, "step": 64, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_10", "midi": 65, "step": 72, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_11", "midi": 67, "step": 80, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_12", "midi": 64, "step": 88, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_13", "midi": 69, "step": 96, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_14", "midi": 72, "step": 104, "duration": 8, "velocity": 0.78 },
+          { "id": "d7a_15", "midi": 71, "step": 112, "duration": 8, "velocity": 0.82 },
+          { "id": "d7a_16", "midi": 74, "step": 120, "duration": 8, "velocity": 0.8 }
+        ]
+      },
+      {
+        "id": "demo_c7_lofi",
+        "labelKo": "B. 편곡 예시 (단조 · 로파이 붐뱁)",
+        "badgeKo": "편곡 예시",
+        "tone": "good",
+        "descKo": "같은 8마디 뼈대라도 장조를 단조로 돌리고 로파이 드럼을 붙이면 전혀 다른 현대 비트 곡이 된다.",
+        "bpm": 82,
+        "mode": "minor",
+        "grooveId": "lofi_chill",
+        "chords": ["I", "V", "vi", "iii", "IV", "I", "IV", "V"],
+        "melody": [
+          { "id": "d7b_1", "midi": 75, "step": 0, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_2", "midi": 72, "step": 8, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_3", "midi": 74, "step": 16, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_4", "midi": 71, "step": 24, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_5", "midi": 72, "step": 32, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_6", "midi": 68, "step": 40, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_7", "midi": 71, "step": 48, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_8", "midi": 67, "step": 56, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_9", "midi": 68, "step": 64, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_10", "midi": 65, "step": 72, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_11", "midi": 67, "step": 80, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_12", "midi": 63, "step": 88, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_13", "midi": 68, "step": 96, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_14", "midi": 72, "step": 104, "duration": 4, "velocity": 0.78 },
+          { "id": "d7b_15", "midi": 71, "step": 112, "duration": 4, "velocity": 0.82 },
+          { "id": "d7b_16", "midi": 74, "step": 120, "duration": 4, "velocity": 0.8 }
+        ]
+      }
+    ],
+    "theoryPoints": [
+      {
+        "headingKo": "현대 가요·팝의 원조가 된 8마디 코드 진행",
+        "bodyKo": "C → G → Am → Em → F → C → F → G 순서로 베이스 음이 도-시-라-솔-파-미-파-솔 하고 계단처럼 내려가는 구조라 듣기 편하고 질리지 않는다."
+      },
+      {
+        "headingKo": "편곡이란 '뼈대를 두고 옷을 갈아입히는 일'",
+        "bodyKo": "코드와 핵심 음형은 그대로 두고 리듬 그루브를 바꾸거나 장조↔단조, 멜로디 리듬만 손봐도 완전히 새로운 내 곡이 된다."
+      }
+    ],
+    "annotations": [
+      { "barLabelKo": "1~2마디 (C → G)", "textKo": "도에서 시로 한 계단 내려가며 멜로디도 미5→레5로 내려온다" },
+      { "barLabelKo": "3~4마디 (Am → Em)", "textKo": "라에서 솔로 이어지며 도5→시4로 부드럽게 하강한다" },
+      { "barLabelKo": "5~6마디 (F → C)", "textKo": "가장 깊은 저점인 파·미(라4→솔4)까지 내려갔다 다시 숨을 고른다" },
+      { "barLabelKo": "7~8마디 (F → G)", "textKo": "다시 라4→시4로 고개를 들며 다음 반복(1마디 C)을 부른다" }
+    ],
+    "workspaceKind": "classic_arrange",
+    "showDurationPicker": true,
+    "goalSummaryKo": "원곡 반주(발라드 아르페지오)에서 다른 리듬 그루브로 바꾸고, 단조 전환 또는 피아노롤 음표 수정 중 1가지 이상을 더해 나만의 캐논 편곡을 완성해 보자.",
+    "hintKo": "먼저 '로파이 붐뱁'이나 '8비트 기타 스트럼' 카드를 고른 뒤, '단조 (차분)' 버튼을 누르거나 아래 피아노롤에 음표를 몇 개 추가해 보자.",
+    "initialProject": {
+      "bars": 8,
+      "bpm": 76,
+      "mode": "major",
+      "grooveId": "ballad_arp",
+      "progressionId": "canon",
+      "baked": true,
+      "bakedMelody": [
+        { "id": "can_1", "midi": 76, "step": 0, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_2", "midi": 72, "step": 8, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_3", "midi": 74, "step": 16, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_4", "midi": 71, "step": 24, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_5", "midi": 72, "step": 32, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_6", "midi": 69, "step": 40, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_7", "midi": 71, "step": 48, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_8", "midi": 67, "step": 56, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_9", "midi": 69, "step": 64, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_10", "midi": 65, "step": 72, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_11", "midi": 67, "step": 80, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_12", "midi": 64, "step": 88, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_13", "midi": 69, "step": 96, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_14", "midi": 72, "step": 104, "duration": 8, "velocity": 0.78, "origin": "base" },
+        { "id": "can_15", "midi": 71, "step": 112, "duration": 8, "velocity": 0.82, "origin": "base" },
+        { "id": "can_16", "midi": 74, "step": 120, "duration": 8, "velocity": 0.8, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "groove_not",
+        "disallowedId": "ballad_arp",
+        "labelKo": "원곡 반주(발라드 아르페지오)를 다른 리듬 그루브로 바꾸기"
+      },
+      {
+        "type": "arrangement_changed",
+        "labelKo": "단조 전환 또는 피아노롤 멜로디 직접 편곡하기"
+      }
+    ]
+  }
+]

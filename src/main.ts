@@ -3,11 +3,21 @@ import { MotifAudioEngine } from './audio/instruments';
 import { MotifTransport, type TrackMuteState } from './audio/transport';
 import { analyzeSong } from './core/analyzer';
 import {
+  BASIC_LESSONS,
+  type CompareDemo,
+  compileCompareDemo,
+  createBasicLessonProject,
+  evaluateBasicLesson,
+  getBasicLessonById,
+} from './core/basics';
+import {
   bakeProjectMelody,
   compileSong,
   previewModifierDiff,
   unpackBlocksToChain,
 } from './core/compiler';
+import { ProjectHistory } from './core/history';
+import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
 import { exportToMidi } from './core/midi';
 import {
   type MelodyInstrument,
@@ -17,9 +27,8 @@ import {
   cloneProject,
   createDefaultProject,
 } from './core/model';
-import { ProjectHistory } from './core/history';
-import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
+import { renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
 import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
@@ -27,10 +36,12 @@ import { renderLessonBanner } from './ui/lessonPanel';
 
 const STORAGE_KEY = 'motif_project_v1';
 const LESSON_STORAGE_KEY = 'motif_lessons_v1';
+const BASICS_STORAGE_KEY = 'motif_basics_v1';
+const MODE_STORAGE_KEY = 'motif_mode_v1';
 
-type AppMode = 'free' | 'lesson';
+type AppMode = 'basics' | 'lesson' | 'free';
 
-interface LessonProgress {
+interface ProgressStore {
   completedIds: string[];
   activeLessonId: string;
 }
@@ -50,6 +61,24 @@ const PC_KEYBOARD_NOTES: Record<string, number> = {
   j: 71,
   k: 72, // C5
 };
+
+function loadInitialMode(): AppMode {
+  try {
+    const raw = localStorage.getItem(MODE_STORAGE_KEY);
+    if (raw === 'basics' || raw === 'lesson' || raw === 'free') return raw;
+  } catch {
+    // 저장 불가 환경은 기본 모드로 시작한다.
+  }
+  return 'basics';
+}
+
+function saveMode(mode: AppMode): void {
+  try {
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    // 저장 불가 환경은 건너뛴다.
+  }
+}
 
 function loadInitialProject(): SongProject {
   try {
@@ -72,30 +101,31 @@ function saveProject(project: SongProject): void {
   }
 }
 
-function loadLessonProgress(): LessonProgress {
+function loadProgress(key: string, validList: Array<{ id: string }>): ProgressStore {
+  const validIds = new Set(validList.map((l) => l.id));
+  const fallbackId = validList[0].id;
   try {
-    const raw = localStorage.getItem(LESSON_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<LessonProgress>;
-      const validIds = new Set(LESSONS.map((l) => l.id));
+      const parsed = JSON.parse(raw) as Partial<ProgressStore>;
       const completedIds = Array.isArray(parsed.completedIds)
         ? parsed.completedIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))
         : [];
       const activeLessonId =
         typeof parsed.activeLessonId === 'string' && validIds.has(parsed.activeLessonId)
           ? parsed.activeLessonId
-          : LESSONS[0].id;
+          : fallbackId;
       return { completedIds, activeLessonId };
     }
   } catch {
     // 저장 데이터 파싱 실패 시 기본 진행도로 시작한다.
   }
-  return { completedIds: [], activeLessonId: LESSONS[0].id };
+  return { completedIds: [], activeLessonId: fallbackId };
 }
 
-function saveLessonProgress(progress: LessonProgress): void {
+function saveProgress(key: string, progress: ProgressStore): void {
   try {
-    localStorage.setItem(LESSON_STORAGE_KEY, JSON.stringify(progress));
+    localStorage.setItem(key, JSON.stringify(progress));
   } catch {
     // 저장 불가 환경은 조용히 건너뛴다.
   }
@@ -121,11 +151,20 @@ function init(): void {
   const root = document.getElementById('app');
   if (!root) return;
 
-  let appMode: AppMode = 'free';
+  let appMode: AppMode = loadInitialMode();
   let freeProject = loadInitialProject();
-  let lessonProgress = loadLessonProgress();
+  let basicsProgress = loadProgress(BASICS_STORAGE_KEY, BASIC_LESSONS);
+  let lessonProgress = loadProgress(LESSON_STORAGE_KEY, LESSONS);
+  let showBasicsHint = false;
   let showLessonHint = false;
-  let project = cloneProject(freeProject);
+  let selectedPickBar = 0;
+
+  let project =
+    appMode === 'basics'
+      ? createBasicLessonProject(basicsProgress.activeLessonId)
+      : appMode === 'lesson'
+        ? createLessonProject(lessonProgress.activeLessonId)
+        : cloneProject(freeProject);
   let compiled = compileSong(project);
   let activeStep = -1;
   let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
@@ -136,28 +175,40 @@ function init(): void {
   const transport = new MotifTransport(audio, compiled, {
     onStep: (step) => {
       activeStep = step;
+      if (appMode === 'basics') {
+        updatePianoRollPlayhead(basicsRootEl, activeStep, compiled.totalSteps);
+        return;
+      }
       const activeBar = activeStep >= 0 ? Math.floor(activeStep / 16) : -1;
       updateGuitarStripActiveBar(stripEl, activeBar);
       updatePianoRollPlayhead(mainEl, activeStep, compiled.totalSteps);
     },
     onStop: () => {
       renderTopControls();
+      if (appMode === 'basics') {
+        updateBasicsPlayButton(basicsRootEl, false);
+      }
     },
   });
 
   root.innerHTML = `
     <div class="app-shell">
       <header class="topbar" id="topbar"></header>
-      <section class="lesson-banner" id="lesson-banner" hidden></section>
-      <section class="chord-strip" id="chord-strip"></section>
-      <main class="workspace-grid">
-        <section class="main-panel" id="main-panel"></section>
-        <aside class="coach-panel" id="coach-panel"></aside>
-      </main>
+      <section class="basics-root" id="basics-root" hidden></section>
+      <div class="sandbox-root" id="sandbox-root" hidden>
+        <section class="lesson-banner" id="lesson-banner" hidden></section>
+        <section class="chord-strip" id="chord-strip"></section>
+        <main class="workspace-grid">
+          <section class="main-panel" id="main-panel"></section>
+          <aside class="coach-panel" id="coach-panel"></aside>
+        </main>
+      </div>
     </div>
   `;
 
   const topbarEl = document.getElementById('topbar')!;
+  const basicsRootEl = document.getElementById('basics-root')!;
+  const sandboxRootEl = document.getElementById('sandbox-root')!;
   const lessonBannerEl = document.getElementById('lesson-banner')!;
   const stripEl = document.getElementById('chord-strip')!;
   const mainEl = document.getElementById('main-panel')!;
@@ -182,22 +233,50 @@ function init(): void {
   function switchMode(mode: AppMode): void {
     if (mode === appMode) return;
     appMode = mode;
+    saveMode(mode);
+    showBasicsHint = false;
     showLessonHint = false;
-    if (mode === 'free') {
-      loadWorkspaceProject(freeProject);
-    } else {
+    selectedPickBar = 0;
+    if (mode === 'basics') {
+      loadWorkspaceProject(createBasicLessonProject(basicsProgress.activeLessonId));
+    } else if (mode === 'lesson') {
       loadWorkspaceProject(createLessonProject(lessonProgress.activeLessonId));
+    } else {
+      loadWorkspaceProject(freeProject);
     }
+  }
+
+  function selectBasicLesson(lessonId: string): void {
+    basicsProgress = { ...basicsProgress, activeLessonId: lessonId };
+    saveProgress(BASICS_STORAGE_KEY, basicsProgress);
+    showBasicsHint = false;
+    selectedPickBar = 0;
+    if (appMode !== 'basics') {
+      appMode = 'basics';
+      saveMode('basics');
+    }
+    loadWorkspaceProject(createBasicLessonProject(lessonId));
   }
 
   function selectLesson(lessonId: string): void {
     lessonProgress = { ...lessonProgress, activeLessonId: lessonId };
-    saveLessonProgress(lessonProgress);
+    saveProgress(LESSON_STORAGE_KEY, lessonProgress);
     showLessonHint = false;
     if (appMode !== 'lesson') {
       appMode = 'lesson';
+      saveMode('lesson');
     }
     loadWorkspaceProject(createLessonProject(lessonId));
+  }
+
+  function openProjectInFreeSketch(source: SongProject): void {
+    const next = cloneProject(source);
+    next.activeLayer = 'L3';
+    freeProject = next;
+    saveProject(freeProject);
+    appMode = 'free';
+    saveMode('free');
+    loadWorkspaceProject(freeProject);
   }
 
   function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
@@ -206,15 +285,15 @@ function init(): void {
 
     // L1 블록의 progressionId 변경 시 L2 코드 슬롯도 동기화한다.
     if (
-      next.blocks.progressionId !== project.blocks.progressionId ||
-      next.bars !== project.bars
+      appMode !== 'basics' &&
+      (next.blocks.progressionId !== project.blocks.progressionId || next.bars !== project.bars)
     ) {
       next.chain = unpackBlocksToChain(next.blocks, next.bars, next.chain.modifiers);
     }
 
     let resolvedNext = next;
     // L2 -> L3 탭 전환 시 아직 구워지지 않았으면 자동으로 음표를 굽는다.
-    if (next.activeLayer === 'L3' && !next.baked && project.activeLayer !== 'L3') {
+    if (appMode !== 'basics' && next.activeLayer === 'L3' && !next.baked && project.activeLayer !== 'L3') {
       resolvedNext = bakeProjectMelody(next);
     }
 
@@ -249,7 +328,43 @@ function init(): void {
     updateState(restored, false, false);
   }
 
+  function togglePlayback(): void {
+    if (transport.isPlaying()) transport.stop();
+    else transport.start(true);
+    renderTopControls();
+    if (appMode === 'basics') {
+      updateBasicsPlayButton(basicsRootEl, transport.isPlaying());
+    }
+  }
+
   function renderTopControls(): void {
+    const modeSwitchHtml = `
+      <div class="mode-switch">
+        <button class="mode-pill${appMode === 'basics' ? ' active' : ''}" data-app-mode="basics" type="button">기초 입문 (${basicsProgress.completedIds.length}/${BASIC_LESSONS.length})</button>
+        <button class="mode-pill${appMode === 'lesson' ? ' active' : ''}" data-app-mode="lesson" type="button">실전 미션 (${lessonProgress.completedIds.length}/${LESSONS.length})</button>
+        <button class="mode-pill${appMode === 'free' ? ' active' : ''}" data-app-mode="free" type="button">자유 스케치</button>
+      </div>
+    `;
+
+    if (appMode === 'basics') {
+      topbarEl.innerHTML = `
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <div class="brand-title">Motif 작곡 입문</div>
+            <div class="brand-sub">귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스</div>
+          </div>
+        </div>
+        <div class="controls-row">${modeSwitchHtml}</div>
+      `;
+      topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          switchMode(btn.dataset.appMode as AppMode);
+        });
+      });
+      return;
+    }
+
     const keyOpts = NOTE_NAMES_SHARP.map(
       (n, idx) =>
         `<option value="${idx}"${idx === project.keyRoot ? ' selected' : ''}>${n} (${KOREAN_SOLFEGE[idx]})</option>`
@@ -264,10 +379,7 @@ function init(): void {
         </div>
       </div>
       <div class="controls-row">
-        <div class="mode-switch">
-          <button class="mode-pill${appMode === 'free' ? ' active' : ''}" data-app-mode="free" type="button">자유 스케치</button>
-          <button class="mode-pill${appMode === 'lesson' ? ' active' : ''}" data-app-mode="lesson" type="button">레슨 (${lessonProgress.completedIds.length}/${LESSONS.length})</button>
-        </div>
+        ${modeSwitchHtml}
         <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
           ${transport.isPlaying() ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
         </button>
@@ -304,7 +416,7 @@ function init(): void {
         <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
         <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
         <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
-        <button class="btn" id="btn-seed" type="button">새 변형 뽑기</button>
+        <button class="btn" id="btn-seed" type="button">랜덤 초안 다시 뽑기</button>
         <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
     `;
@@ -316,9 +428,7 @@ function init(): void {
     });
 
     topbarEl.querySelector('#btn-play')?.addEventListener('click', () => {
-      if (transport.isPlaying()) transport.stop();
-      else transport.start(true);
-      renderTopControls();
+      togglePlayback();
     });
 
     topbarEl.querySelector('#sel-key')?.addEventListener('change', (e) => {
@@ -397,6 +507,11 @@ function init(): void {
     }
   }
 
+  function auditionChordWithNote(voicingMidi: number[], midi: number): void {
+    audio.auditionChord(voicingMidi, 'guitar');
+    audio.playPiano(midi, audio.currentTime + 0.04, 0.9, 0.85, 0.25);
+  }
+
   function renderDynamicParts(): void {
     const activeBar = activeStep >= 0 ? Math.floor(activeStep / 16) : -1;
     renderGuitarStrip(stripEl, compiled.resolvedChords, activeBar, (chord) => {
@@ -434,7 +549,7 @@ function init(): void {
         ...lessonProgress,
         completedIds: [...lessonProgress.completedIds, lesson.id],
       };
-      saveLessonProgress(lessonProgress);
+      saveProgress(LESSON_STORAGE_KEY, lessonProgress);
       newlyCompleted = true;
     }
 
@@ -465,8 +580,93 @@ function init(): void {
     return newlyCompleted;
   }
 
+  function renderBasicsMode(report = analyzeSong(compiled, project)): void {
+    const lesson = getBasicLessonById(basicsProgress.activeLessonId);
+    const evaluation = evaluateBasicLesson(lesson.id, project, compiled, report);
+    if (evaluation.passed && !basicsProgress.completedIds.includes(lesson.id)) {
+      basicsProgress = {
+        ...basicsProgress,
+        completedIds: [...basicsProgress.completedIds, lesson.id],
+      };
+      saveProgress(BASICS_STORAGE_KEY, basicsProgress);
+    }
+
+    renderBasicsView(
+      basicsRootEl,
+      lesson,
+      project,
+      compiled,
+      evaluation,
+      {
+        completedIds: new Set(basicsProgress.completedIds),
+        activeStep,
+        isPlaying: transport.isPlaying(),
+        showHint: showBasicsHint,
+        canUndo: history.canUndo(),
+        selectedDuration,
+        selectedPickBar,
+      },
+      {
+        onSelectLesson: (id) => selectBasicLesson(id),
+        onPlayDemo: (demo: CompareDemo) => {
+          const demoCompiled = compileCompareDemo(demo, project.keyRoot);
+          transport.playOncePreview(demoCompiled, demo.bpm, 'piano', {
+            melody: false,
+            chords: false,
+            bass: false,
+            drums: false,
+          });
+          updateBasicsPlayButton(basicsRootEl, true);
+        },
+        onTogglePlay: togglePlayback,
+        onUndo: performUndo,
+        onToggleHint: () => {
+          showBasicsHint = !showBasicsHint;
+          renderBasicsMode();
+        },
+        onReset: () => {
+          showBasicsHint = false;
+          selectedPickBar = 0;
+          loadWorkspaceProject(createBasicLessonProject(lesson.id));
+        },
+        onSelectDuration: (steps) => {
+          selectedDuration = steps;
+          renderBasicsMode();
+        },
+        onSelectPickBar: (barIdx) => {
+          selectedPickBar = barIdx;
+          const chord = compiled.resolvedChords[barIdx];
+          if (chord) audio.auditionChord(chord.voicingMidi, 'guitar');
+          renderBasicsMode();
+        },
+        onProjectChange: (next) => updateState(next),
+        onAuditionPitch: auditionPitch,
+        onAuditionChordWithNote: auditionChordWithNote,
+        onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, 'guitar'),
+        onNextLesson: () => {
+          const idx = BASIC_LESSONS.findIndex((l) => l.id === lesson.id);
+          const nextLesson = BASIC_LESSONS[idx + 1];
+          if (nextLesson) selectBasicLesson(nextLesson.id);
+        },
+        onGoToMissions: () => switchMode('lesson'),
+        onOpenInFreeSketch: () => openProjectInFreeSketch(project),
+      }
+    );
+  }
+
   function renderAll(): void {
     const report = analyzeSong(compiled, project);
+
+    if (appMode === 'basics') {
+      basicsRootEl.hidden = false;
+      sandboxRootEl.hidden = true;
+      renderBasicsMode(report);
+      renderTopControls();
+      return;
+    }
+
+    basicsRootEl.hidden = true;
+    sandboxRootEl.hidden = false;
     syncLessonBanner(report);
     renderTopControls();
     renderDynamicParts();
@@ -503,9 +703,7 @@ function init(): void {
     }
     if (e.code === 'Space') {
       e.preventDefault();
-      if (transport.isPlaying()) transport.stop();
-      else transport.start(true);
-      renderTopControls();
+      togglePlayback();
       return;
     }
     const midi = PC_KEYBOARD_NOTES[e.key.toLowerCase()];
