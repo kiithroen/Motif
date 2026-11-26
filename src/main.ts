@@ -405,7 +405,7 @@ function init(): void {
         <div class="ctrl-group">
           <span>BPM</span>
           <strong id="bpm-val">${project.bpm}</strong>
-          <input id="sl-bpm" type="range" min="60" max="150" step="2" value="${project.bpm}" style="width:76px;" />
+          <input id="sl-bpm" type="range" min="60" max="150" step="2" value="${project.bpm}" style="width:60px;" />
         </div>
         <div class="ctrl-group">
           <span>선율 악기</span>
@@ -420,7 +420,7 @@ function init(): void {
         <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
         <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
         <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
-        <button class="btn" id="btn-seed" type="button">랜덤 초안 다시 뽑기</button>
+        <button class="btn" id="btn-seed" type="button" title="랜덤 초안 다시 뽑기">랜덤 초안</button>
         <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
     `;
