@@ -348,14 +348,16 @@ function init(): void {
 
     if (appMode === 'basics') {
       topbarEl.innerHTML = `
-        <div class="brand">
-          <div class="brand-mark">M</div>
-          <div>
-            <div class="brand-title">Motif 작곡 입문</div>
-            <div class="brand-sub">귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스</div>
+        <div class="topbar-main">
+          <div class="brand">
+            <div class="brand-mark">M</div>
+            <div>
+              <div class="brand-title">Motif 작곡 스케치북</div>
+              <div class="brand-sub">귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스</div>
+            </div>
           </div>
+          ${modeSwitchHtml}
         </div>
-        <div class="controls-row">${modeSwitchHtml}</div>
       `;
       topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -371,15 +373,17 @@ function init(): void {
     ).join('');
 
     topbarEl.innerHTML = `
-      <div class="brand">
-        <div class="brand-mark">M</div>
-        <div>
-          <div class="brand-title">Motif 작곡 스케치북</div>
-          <div class="brand-sub">L1 블록 → L2 변형 체인 → L3 음표로 배우는 4/8마디 작곡</div>
+      <div class="topbar-main">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <div class="brand-title">Motif 작곡 스케치북</div>
+            <div class="brand-sub">L1 블록 → L2 변형 체인 → L3 음표로 배우는 4/8마디 작곡</div>
+          </div>
         </div>
-      </div>
-      <div class="controls-row">
         ${modeSwitchHtml}
+      </div>
+      <div class="controls-row topbar-tools">
         <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
           ${transport.isPlaying() ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
         </button>

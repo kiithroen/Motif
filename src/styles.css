@@ -58,6 +58,19 @@ button, select, input {
   gap: 10px;
 }
 
+.topbar-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.topbar-tools {
+  width: 100%;
+}
+
 .brand-mark {
   width: 30px;
   height: 30px;
@@ -839,8 +852,6 @@ button, select, input {
 }
 
 .learn-shell {
-  max-width: 1080px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -849,11 +860,11 @@ button, select, input {
 .learn-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 18px 20px;
+  border-radius: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .learn-title {
