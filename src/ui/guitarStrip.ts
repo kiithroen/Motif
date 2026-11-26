@@ -76,3 +76,10 @@ export function renderGuitarStrip(
     });
   });
 }
+
+export function updateGuitarStripActiveBar(container: HTMLElement, activeBar: number): void {
+  container.querySelectorAll<HTMLElement>('.chord-card').forEach((card) => {
+    const bar = Number(card.dataset.bar);
+    card.classList.toggle('active', bar === activeBar);
+  });
+}

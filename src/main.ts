@@ -12,14 +12,16 @@ import { exportToMidi } from './core/midi';
 import {
   type MelodyInstrument,
   type ModifierId,
+  PRESETS,
   type SongProject,
   cloneProject,
   createDefaultProject,
 } from './core/model';
+import { ProjectHistory } from './core/history';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderCoachPanel } from './ui/coachPanel';
-import { renderGuitarStrip } from './ui/guitarStrip';
-import { renderLayerEditor } from './ui/layers';
+import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
+import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 
 const STORAGE_KEY = 'motif_project_v1';
 
@@ -83,13 +85,17 @@ function init(): void {
   let project = loadInitialProject();
   let compiled = compileSong(project);
   let activeStep = -1;
+  let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
+  const history = new ProjectHistory();
   const mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
 
   const audio = new MotifAudioEngine();
   const transport = new MotifTransport(audio, compiled, {
     onStep: (step) => {
       activeStep = step;
-      renderDynamicParts();
+      const activeBar = activeStep >= 0 ? Math.floor(activeStep / 16) : -1;
+      updateGuitarStripActiveBar(stripEl, activeBar);
+      updatePianoRollPlayhead(mainEl, activeStep, compiled.totalSteps);
     },
     onStop: () => {
       renderTopControls();
@@ -112,7 +118,16 @@ function init(): void {
   const mainEl = document.getElementById('main-panel')!;
   const coachEl = document.getElementById('coach-panel')!;
 
-  function updateState(next: SongProject, recompileAudioOnly = false): void {
+  function isTabOnlyChange(prev: SongProject, next: SongProject): boolean {
+    if (prev.activeLayer === next.activeLayer) return false;
+    const normalizedPrev = { ...prev, activeLayer: next.activeLayer };
+    return JSON.stringify(normalizedPrev) === JSON.stringify(next);
+  }
+
+  function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
+    const prev = project;
+    const tabOnly = isTabOnlyChange(prev, next);
+
     // L1 블록의 progressionId 변경 시 L2 코드 슬롯도 동기화한다.
     if (
       next.blocks.progressionId !== project.blocks.progressionId ||
@@ -120,21 +135,36 @@ function init(): void {
     ) {
       next.chain = unpackBlocksToChain(next.blocks, next.bars, next.chain.modifiers);
     }
+
+    let resolvedNext = next;
     // L2 -> L3 탭 전환 시 아직 구워지지 않았으면 자동으로 음표를 굽는다.
     if (next.activeLayer === 'L3' && !next.baked && project.activeLayer !== 'L3') {
-      project = bakeProjectMelody(next);
-    } else {
-      project = next;
+      resolvedNext = bakeProjectMelody(next);
     }
 
+    if (recordHistory && !tabOnly && !recompileAudioOnly) {
+      history.push(prev);
+    }
+
+    project = resolvedNext;
     compiled = compileSong(project);
     saveProject(project);
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
     if (!recompileAudioOnly) {
       renderAll();
-    } else {
-      renderDynamicParts();
     }
+  }
+
+  function performUndo(): void {
+    const restored = history.undo(project);
+    if (!restored) return;
+    updateState(restored, false, false);
+  }
+
+  function performRedo(): void {
+    const restored = history.redo(project);
+    if (!restored) return;
+    updateState(restored, false, false);
   }
 
   function renderTopControls(): void {
@@ -186,6 +216,8 @@ function init(): void {
         <button class="btn btn-chip${mutes.chords ? ' muted' : ''}" data-mute="chords" type="button">코드</button>
         <button class="btn btn-chip${mutes.bass ? ' muted' : ''}" data-mute="bass" type="button">베이스</button>
         <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
+        <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
+        <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
         <button class="btn" id="btn-seed" type="button">새 변형 뽑기</button>
         <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
@@ -241,6 +273,14 @@ function init(): void {
       });
     });
 
+    topbarEl.querySelector('#btn-undo')?.addEventListener('click', () => {
+      performUndo();
+    });
+
+    topbarEl.querySelector('#btn-redo')?.addEventListener('click', () => {
+      performRedo();
+    });
+
     topbarEl.querySelector('#btn-seed')?.addEventListener('click', () => {
       const next = cloneProject(project);
       next.seed += 1;
@@ -269,6 +309,11 @@ function init(): void {
     });
 
     renderLayerEditor(mainEl, project, compiled, activeStep, {
+      selectedDuration,
+      onSelectDuration: (steps) => {
+        selectedDuration = steps;
+        renderDynamicParts();
+      },
       onProjectChange: (next, audioOnly) => updateState(next, audioOnly),
       onAuditionPitch: auditionPitch,
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
@@ -301,6 +346,19 @@ function init(): void {
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'SELECT') return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        performUndo();
+        return;
+      }
+      if (key === 'y' || (key === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        performRedo();
+        return;
+      }
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       if (transport.isPlaying()) transport.stop();

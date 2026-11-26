@@ -111,6 +111,11 @@ export interface ModifierMeta {
   defaultAmount: number;
 }
 
+export interface NoteDurationOption {
+  steps: number;
+  labelKo: string;
+}
+
 export interface PresetsData {
   defaults: {
     keyRoot: number;
@@ -130,6 +135,7 @@ export interface PresetsData {
   contours: ContourPreset[];
   modifiers: ModifierMeta[];
   availableDegrees: DegreeSymbol[];
+  noteDurationOptions: NoteDurationOption[];
   analyzerThresholds: {
     minRangeSemitones: number;
     largeLeapSemitones: number;

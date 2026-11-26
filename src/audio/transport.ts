@@ -16,24 +16,31 @@ export interface TransportCallbacks {
 
 export class MotifTransport {
   private readonly audio: MotifAudioEngine;
-  private compiled: CompiledSong;
+  private mainSong: CompiledSong;
+  private previewSong: CompiledSong | null = null;
   private bpm = 96;
   private melodyInstrument: MelodyInstrument = 'piano';
   private mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
   private callbacks: TransportCallbacks;
 
   private playing = false;
+  private finishing = false;
   private loop = true;
   private currentStep = 0;
   private nextNoteTime = 0;
   private timerId: number | null = null;
   private uiTimerId: number | null = null;
+  private finishTimerId: number | null = null;
   private stepQueue: Array<{ step: number; time: number }> = [];
 
   constructor(audio: MotifAudioEngine, compiled: CompiledSong, callbacks: TransportCallbacks = {}) {
     this.audio = audio;
-    this.compiled = compiled;
+    this.mainSong = compiled;
     this.callbacks = callbacks;
+  }
+
+  private get activeSong(): CompiledSong {
+    return this.previewSong ?? this.mainSong;
   }
 
   public isPlaying(): boolean {
@@ -41,39 +48,53 @@ export class MotifTransport {
   }
 
   public updateSong(compiled: CompiledSong, bpm: number, melodyInstrument: MelodyInstrument, mutes: TrackMuteState): void {
-    this.compiled = compiled;
+    this.mainSong = compiled;
     this.bpm = Math.max(45, Math.min(200, bpm));
     this.melodyInstrument = melodyInstrument;
     this.mutes = { ...mutes };
-    if (this.currentStep >= compiled.totalSteps) {
+    if (this.currentStep >= this.activeSong.totalSteps) {
       this.currentStep = 0;
     }
   }
 
   public start(loop = true): void {
+    this.previewSong = null;
+    this.beginPlayback(loop);
+  }
+
+  private beginPlayback(loop: boolean): void {
+    const preservedPreview = this.previewSong;
     this.stop();
+    this.previewSong = preservedPreview;
     const ctx = this.audio.ensureContext();
     this.playing = true;
+    this.finishing = false;
     this.loop = loop;
     this.currentStep = 0;
     this.stepQueue = [];
     this.nextNoteTime = ctx.currentTime + 0.04;
 
-    this.timerId = window.setInterval(() => this.schedulerTick(), 25);
-    this.uiTimerId = window.setInterval(() => this.flushUiStep(), 30);
+    this.timerId = globalThis.setInterval(() => this.schedulerTick(), 25) as unknown as number;
+    this.uiTimerId = globalThis.setInterval(() => this.flushUiStep(), 30) as unknown as number;
   }
 
   public stop(): void {
     if (this.timerId !== null) {
-      window.clearInterval(this.timerId);
+      globalThis.clearInterval(this.timerId);
       this.timerId = null;
     }
     if (this.uiTimerId !== null) {
-      window.clearInterval(this.uiTimerId);
+      globalThis.clearInterval(this.uiTimerId);
       this.uiTimerId = null;
+    }
+    if (this.finishTimerId !== null) {
+      globalThis.clearTimeout(this.finishTimerId);
+      this.finishTimerId = null;
     }
     const wasPlaying = this.playing;
     this.playing = false;
+    this.finishing = false;
+    this.previewSong = null;
     this.stepQueue = [];
     this.callbacks.onStep?.(-1);
     if (wasPlaying) {
@@ -82,8 +103,12 @@ export class MotifTransport {
   }
 
   public playOncePreview(song: CompiledSong, bpm: number, melodyInstrument: MelodyInstrument, mutes: TrackMuteState): void {
-    this.updateSong(song, bpm, melodyInstrument, mutes);
-    this.start(false);
+    this.stop();
+    this.previewSong = song;
+    this.bpm = Math.max(45, Math.min(200, bpm));
+    this.melodyInstrument = melodyInstrument;
+    this.mutes = { ...mutes };
+    this.beginPlayback(false);
   }
 
   private stepDurationSec(): number {
@@ -91,29 +116,30 @@ export class MotifTransport {
   }
 
   private schedulerTick(): void {
-    if (!this.playing) return;
+    if (!this.playing || this.finishing) return;
+    const song = this.activeSong;
     const lookaheadSec = 0.14;
     const now = this.audio.currentTime;
     const stepDur = this.stepDurationSec();
 
     while (this.nextNoteTime < now + lookaheadSec) {
-      if (!this.loop && this.currentStep >= this.compiled.totalSteps) {
+      if (!this.loop && this.currentStep >= song.totalSteps) {
         const stopDelayMs = Math.max(40, (this.nextNoteTime - now) * 1000);
-        window.setTimeout(() => {
-          if (this.playing && !this.loop) this.stop();
-        }, stopDelayMs);
-        this.playing = false;
+        this.finishing = true;
+        this.finishTimerId = globalThis.setTimeout(() => {
+          if (this.finishing) this.stop();
+        }, stopDelayMs) as unknown as number;
         break;
       }
 
-      const step = this.currentStep % this.compiled.totalSteps;
-      this.scheduleStepEvents(step, this.nextNoteTime, stepDur);
+      const step = this.currentStep % song.totalSteps;
+      this.scheduleStepEvents(song, step, this.nextNoteTime, stepDur);
       this.stepQueue.push({ step, time: this.nextNoteTime });
 
       this.nextNoteTime += stepDur;
       this.currentStep += 1;
       if (this.loop) {
-        this.currentStep %= this.compiled.totalSteps;
+        this.currentStep %= song.totalSteps;
       }
     }
   }
@@ -129,10 +155,10 @@ export class MotifTransport {
     }
   }
 
-  private scheduleStepEvents(step: number, when: number, stepDur: number): void {
+  private scheduleStepEvents(song: CompiledSong, step: number, when: number, stepDur: number): void {
     if (!this.mutes.chords) {
       let chordIdx = 0;
-      for (const c of this.compiled.chords) {
+      for (const c of song.chords) {
         if (c.step === step) {
           this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, c.velocity * 0.72, 0.22);
           chordIdx++;
@@ -141,7 +167,7 @@ export class MotifTransport {
     }
 
     if (!this.mutes.bass) {
-      for (const b of this.compiled.bass) {
+      for (const b of song.bass) {
         if (b.step === step) {
           this.audio.playBass(b.midi, when, b.duration * stepDur, b.velocity * 0.85);
         }
@@ -149,7 +175,7 @@ export class MotifTransport {
     }
 
     if (!this.mutes.drums) {
-      for (const d of this.compiled.drums) {
+      for (const d of song.drums) {
         if (d.step === step) {
           this.audio.playDrum(d.kind, when, d.velocity);
         }
@@ -157,7 +183,7 @@ export class MotifTransport {
     }
 
     if (!this.mutes.melody) {
-      for (const m of this.compiled.melody) {
+      for (const m of song.melody) {
         if (m.step === step) {
           const dur = m.duration * stepDur;
           if (this.melodyInstrument === 'guitar') {

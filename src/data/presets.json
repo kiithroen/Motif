@@ -184,6 +184,11 @@
     }
   ],
   "availableDegrees": ["I", "ii", "iii", "IV", "iv", "V", "V7", "vi", "vii°"],
+  "noteDurationOptions": [
+    { "steps": 2, "labelKo": "8분 (2칸)" },
+    { "steps": 4, "labelKo": "4분 (4칸)" },
+    { "steps": 8, "labelKo": "2분 (8칸)" }
+  ],
   "analyzerThresholds": {
     "minRangeSemitones": 4,
     "largeLeapSemitones": 9,

@@ -9,6 +9,8 @@ import {
 } from '../core/theory';
 
 export interface LayerCallbacks {
+  selectedDuration: number;
+  onSelectDuration: (steps: number) => void;
   onProjectChange: (next: SongProject, recompileAudioOnly?: boolean) => void;
   onAuditionPitch: (midi: number) => void;
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
@@ -19,6 +21,16 @@ const PR_MAX_MIDI = 84; // C6
 const ROW_H = 20;
 const STEP_W = 20;
 
+export function updatePianoRollPlayhead(container: HTMLElement, activeStep: number, totalSteps: number): void {
+  const line = container.querySelector<SVGLineElement>('.pr-playhead');
+  if (!line) return;
+  const visible = activeStep >= 0 && activeStep < totalSteps;
+  const x = visible ? activeStep * STEP_W : 0;
+  line.setAttribute('x1', String(x));
+  line.setAttribute('x2', String(x));
+  line.setAttribute('visibility', visible ? 'visible' : 'hidden');
+}
+
 export function renderLayerEditor(
   container: HTMLElement,
   project: SongProject,
@@ -27,6 +39,8 @@ export function renderLayerEditor(
   callbacks: LayerCallbacks
 ): void {
   const layer = project.activeLayer;
+  const prevScrollLeft =
+    layer === 'L3' ? container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0 : 0;
 
   const tabsHtml = `
     <div class="ladder-tabs">
@@ -61,7 +75,11 @@ export function renderLayerEditor(
     return;
   }
 
-  container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep);
+  container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration);
+  const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
+  if (scrollEl && prevScrollLeft > 0) {
+    scrollEl.scrollLeft = prevScrollLeft;
+  }
   wireTabs(container, project, callbacks);
   wireL3Events(container, project, compiled, callbacks);
 }
@@ -131,7 +149,7 @@ function renderL1Body(project: SongProject): string {
     <div class="card-grid">${contours}</div>
     <div class="sliders-row">
       <div class="slider-box">
-        <div class="slider-label"><span>반주 에너지</span><span>${Math.round(project.blocks.energy * 100)}%</span></div>
+        <div class="slider-label"><span>반주 에너지</span><span id="energy-val">${Math.round(project.blocks.energy * 100)}%</span></div>
         <input id="sl-energy" type="range" min="0.2" max="1" step="0.05" value="${project.blocks.energy}" />
       </div>
       <div class="slider-box">
@@ -175,6 +193,8 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
   container.querySelector('#sl-energy')?.addEventListener('input', (e) => {
     const next = cloneProject(project);
     next.blocks.energy = Number((e.target as HTMLInputElement).value);
+    const valEl = container.querySelector('#energy-val');
+    if (valEl) valEl.textContent = `${Math.round(next.blocks.energy * 100)}%`;
     callbacks.onProjectChange(next, true);
   });
 
@@ -287,17 +307,26 @@ function wireL2Events(container: HTMLElement, project: SongProject, callbacks: L
   });
 }
 
-function renderL3Body(project: SongProject, compiled: CompiledSong, activeStep: number): string {
+function renderL3Body(
+  project: SongProject,
+  compiled: CompiledSong,
+  activeStep: number,
+  selectedDuration: number
+): string {
   const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
   const svgW = compiled.totalSteps * STEP_W;
   const svgH = totalPitches * ROW_H;
   const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
+  const barWidth = 16 * STEP_W;
+  const chordToneSets = compiled.resolvedChords.map((rc) => new Set(rc.pitchClasses));
 
   let keysHtml = '';
   let gridRows = '';
+  let chordHighlights = '';
   for (let midi = PR_MAX_MIDI; midi >= PR_MIN_MIDI; midi--) {
+    const pc = wrapPc(midi);
     const white = isWhiteKey(midi);
-    const inScale = scalePcs.has(wrapPc(midi));
+    const inScale = scalePcs.has(pc);
     const rowIdx = PR_MAX_MIDI - midi;
     const y = rowIdx * ROW_H;
     keysHtml += `
@@ -308,6 +337,13 @@ function renderL3Body(project: SongProject, compiled: CompiledSong, activeStep: 
     `;
     const rowFill = inScale ? (white ? 'rgba(56,189,248,0.06)' : 'rgba(56,189,248,0.03)') : 'rgba(0,0,0,0.22)';
     gridRows += `<rect x="0" y="${y}" width="${svgW}" height="${ROW_H}" fill="${rowFill}" />`;
+
+    for (let b = 0; b < compiled.resolvedChords.length; b++) {
+      if (chordToneSets[b]?.has(pc)) {
+        chordHighlights += `<rect x="${b * barWidth}" y="${y}" width="${barWidth}" height="${ROW_H}" fill="rgba(52, 211, 153, 0.13)" />`;
+      }
+    }
+
     gridRows += `<line x1="0" y1="${y + ROW_H}" x2="${svgW}" y2="${y + ROW_H}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
   }
 
@@ -319,6 +355,20 @@ function renderL3Body(project: SongProject, compiled: CompiledSong, activeStep: 
     const color = isBar ? 'rgba(148,163,184,0.45)' : isBeat ? 'rgba(148,163,184,0.18)' : 'rgba(255,255,255,0.04)';
     vLines += `<line x1="${x}" y1="0" x2="${x}" y2="${svgH}" stroke="${color}" stroke-width="${isBar ? 1.5 : 1}"/>`;
   }
+
+  const barHeaderCells = compiled.resolvedChords
+    .map(
+      (rc, idx) =>
+        `<div class="pr-bar-cell" style="width:${barWidth}px"><span>${idx + 1}마디</span><strong>${rc.symbol}</strong></div>`
+    )
+    .join('');
+
+  const durationButtons = PRESETS.noteDurationOptions
+    .map(
+      (opt) =>
+        `<button class="btn btn-chip${opt.steps === selectedDuration ? ' active' : ''}" data-duration="${opt.steps}" type="button">${opt.labelKo}</button>`
+    )
+    .join('');
 
   let noteRects = '';
   for (const n of compiled.melody) {
@@ -343,10 +393,9 @@ function renderL3Body(project: SongProject, compiled: CompiledSong, activeStep: 
     `;
   }
 
-  const playhead =
-    activeStep >= 0 && activeStep < compiled.totalSteps
-      ? `<line x1="${activeStep * STEP_W}" y1="0" x2="${activeStep * STEP_W}" y2="${svgH}" stroke="#fbbf24" stroke-width="2"/>`
-      : '';
+  const visiblePlayhead = activeStep >= 0 && activeStep < compiled.totalSteps;
+  const playheadX = visiblePlayhead ? activeStep * STEP_W : 0;
+  const playhead = `<line class="pr-playhead" x1="${playheadX}" y1="0" x2="${playheadX}" y2="${svgH}" stroke="#fbbf24" stroke-width="2" visibility="${visiblePlayhead ? 'visible' : 'hidden'}"/>`;
 
   return `
     <div class="pianoroll-wrap">
@@ -356,13 +405,22 @@ function renderL3Body(project: SongProject, compiled: CompiledSong, activeStep: 
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
         </div>
-        <span>빈 칸 클릭: 2스텝 음 추가 · 음표 클릭: 삭제 · PC 건반(A~K): 도~높은도 연주</span>
+        <div class="pr-duration-group">
+          <span>음표 길이</span>
+          ${durationButtons}
+        </div>
+        <span>빈 칸 클릭: 음 추가 · 음표 클릭: 삭제 · PC 건반(A~K)</span>
       </div>
       <div class="pr-container">
-        <div class="pr-keys">${keysHtml}</div>
+        <div class="pr-keys-col">
+          <div class="pr-keys-corner">음높이</div>
+          <div class="pr-keys">${keysHtml}</div>
+        </div>
         <div class="pr-grid-scroll">
+          <div class="pr-bar-header" style="width:${svgW}px">${barHeaderCells}</div>
           <svg class="pr-svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
             ${gridRows}
+            ${chordHighlights}
             ${vLines}
             ${noteRects}
             ${playhead}
@@ -384,6 +442,12 @@ function wireL3Events(
     next.baked = false;
     next.bakedMelody = [];
     callbacks.onProjectChange(next);
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-duration]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      callbacks.onSelectDuration(Number(btn.dataset.duration));
+    });
   });
 
   container.querySelectorAll<HTMLElement>('.pr-key').forEach((el) => {
@@ -420,11 +484,12 @@ function wireL3Events(
     if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
 
     callbacks.onAuditionPitch(midi);
+    const duration = Math.max(1, Math.min(callbacks.selectedDuration, compiled.totalSteps - step));
     const newNote: NoteEvent = {
       id: `m_user_${Date.now()}_${step}`,
       midi,
       step,
-      duration: 2,
+      duration,
       velocity: 0.82,
       origin: 'user',
     };

@@ -122,8 +122,13 @@ button, select, input {
   transition: background 0.15s, border-color 0.15s;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .btn-primary {
@@ -132,7 +137,7 @@ button, select, input {
   border-color: var(--accent);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
@@ -146,6 +151,12 @@ button, select, input {
   padding: 4px 9px;
   font-size: 12px;
   border-radius: 6px;
+}
+
+.btn-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .btn-chip.muted {
@@ -451,10 +462,53 @@ button, select, input {
   user-select: none;
 }
 
-.pr-keys {
+.pr-keys-col {
   width: 78px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
+}
+
+.pr-keys-corner {
+  height: 24px;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-keys {
+  width: 100%;
+}
+
+.pr-bar-header {
+  display: flex;
+  height: 24px;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-bar-cell {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.pr-bar-cell strong {
+  color: var(--green);
+}
+
+.pr-duration-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .pr-key {
