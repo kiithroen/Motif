@@ -21,6 +21,24 @@ const PR_MAX_MIDI = 84; // C6
 const ROW_H = 20;
 const STEP_W = 20;
 
+export function computeFollowScrollLeft(
+  playheadX: number,
+  scrollLeft: number,
+  clientWidth: number,
+  scrollWidth: number
+): number {
+  const maxScroll = Math.max(0, scrollWidth - clientWidth);
+  if (maxScroll <= 0 || clientWidth <= 0) return scrollLeft;
+
+  const leftMargin = Math.min(STEP_W * 2, Math.floor(clientWidth * 0.1));
+  const rightMargin = Math.min(STEP_W * 4, Math.floor(clientWidth * 0.15));
+
+  if (playheadX < scrollLeft || playheadX > scrollLeft + clientWidth - rightMargin) {
+    return Math.max(0, Math.min(maxScroll, playheadX - leftMargin));
+  }
+  return scrollLeft;
+}
+
 export function updatePianoRollPlayhead(container: HTMLElement, activeStep: number, totalSteps: number): void {
   const line = container.querySelector<SVGLineElement>('.pr-playhead');
   if (!line) return;
@@ -29,6 +47,21 @@ export function updatePianoRollPlayhead(container: HTMLElement, activeStep: numb
   line.setAttribute('x1', String(x));
   line.setAttribute('x2', String(x));
   line.setAttribute('visibility', visible ? 'visible' : 'hidden');
+
+  if (visible) {
+    const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
+    if (scrollEl) {
+      const nextScroll = computeFollowScrollLeft(
+        x,
+        scrollEl.scrollLeft,
+        scrollEl.clientWidth,
+        scrollEl.scrollWidth
+      );
+      if (nextScroll !== scrollEl.scrollLeft) {
+        scrollEl.scrollLeft = nextScroll;
+      }
+    }
+  }
 }
 
 export function renderLayerEditor(
