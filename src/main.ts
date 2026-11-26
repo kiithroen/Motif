@@ -18,12 +18,22 @@ import {
   createDefaultProject,
 } from './core/model';
 import { ProjectHistory } from './core/history';
+import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
+import { renderLessonBanner } from './ui/lessonPanel';
 
 const STORAGE_KEY = 'motif_project_v1';
+const LESSON_STORAGE_KEY = 'motif_lessons_v1';
+
+type AppMode = 'free' | 'lesson';
+
+interface LessonProgress {
+  completedIds: string[];
+  activeLessonId: string;
+}
 
 const PC_KEYBOARD_NOTES: Record<string, number> = {
   a: 60, // C4
@@ -62,6 +72,35 @@ function saveProject(project: SongProject): void {
   }
 }
 
+function loadLessonProgress(): LessonProgress {
+  try {
+    const raw = localStorage.getItem(LESSON_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<LessonProgress>;
+      const validIds = new Set(LESSONS.map((l) => l.id));
+      const completedIds = Array.isArray(parsed.completedIds)
+        ? parsed.completedIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))
+        : [];
+      const activeLessonId =
+        typeof parsed.activeLessonId === 'string' && validIds.has(parsed.activeLessonId)
+          ? parsed.activeLessonId
+          : LESSONS[0].id;
+      return { completedIds, activeLessonId };
+    }
+  } catch {
+    // 저장 데이터 파싱 실패 시 기본 진행도로 시작한다.
+  }
+  return { completedIds: [], activeLessonId: LESSONS[0].id };
+}
+
+function saveLessonProgress(progress: LessonProgress): void {
+  try {
+    localStorage.setItem(LESSON_STORAGE_KEY, JSON.stringify(progress));
+  } catch {
+    // 저장 불가 환경은 조용히 건너뛴다.
+  }
+}
+
 function downloadMidi(project: SongProject): void {
   const compiled = compileSong(project);
   const bytes = exportToMidi(compiled, project);
@@ -82,7 +121,11 @@ function init(): void {
   const root = document.getElementById('app');
   if (!root) return;
 
-  let project = loadInitialProject();
+  let appMode: AppMode = 'free';
+  let freeProject = loadInitialProject();
+  let lessonProgress = loadLessonProgress();
+  let showLessonHint = false;
+  let project = cloneProject(freeProject);
   let compiled = compileSong(project);
   let activeStep = -1;
   let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
@@ -105,6 +148,7 @@ function init(): void {
   root.innerHTML = `
     <div class="app-shell">
       <header class="topbar" id="topbar"></header>
+      <section class="lesson-banner" id="lesson-banner" hidden></section>
       <section class="chord-strip" id="chord-strip"></section>
       <main class="workspace-grid">
         <section class="main-panel" id="main-panel"></section>
@@ -114,6 +158,7 @@ function init(): void {
   `;
 
   const topbarEl = document.getElementById('topbar')!;
+  const lessonBannerEl = document.getElementById('lesson-banner')!;
   const stripEl = document.getElementById('chord-strip')!;
   const mainEl = document.getElementById('main-panel')!;
   const coachEl = document.getElementById('coach-panel')!;
@@ -122,6 +167,37 @@ function init(): void {
     if (prev.activeLayer === next.activeLayer) return false;
     const normalizedPrev = { ...prev, activeLayer: next.activeLayer };
     return JSON.stringify(normalizedPrev) === JSON.stringify(next);
+  }
+
+  function loadWorkspaceProject(target: SongProject): void {
+    transport.stop();
+    history.clear();
+    activeStep = -1;
+    project = cloneProject(target);
+    compiled = compileSong(project);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
+    renderAll();
+  }
+
+  function switchMode(mode: AppMode): void {
+    if (mode === appMode) return;
+    appMode = mode;
+    showLessonHint = false;
+    if (mode === 'free') {
+      loadWorkspaceProject(freeProject);
+    } else {
+      loadWorkspaceProject(createLessonProject(lessonProgress.activeLessonId));
+    }
+  }
+
+  function selectLesson(lessonId: string): void {
+    lessonProgress = { ...lessonProgress, activeLessonId: lessonId };
+    saveLessonProgress(lessonProgress);
+    showLessonHint = false;
+    if (appMode !== 'lesson') {
+      appMode = 'lesson';
+    }
+    loadWorkspaceProject(createLessonProject(lessonId));
   }
 
   function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
@@ -148,10 +224,16 @@ function init(): void {
 
     project = resolvedNext;
     compiled = compileSong(project);
-    saveProject(project);
+    if (appMode === 'free') {
+      freeProject = cloneProject(project);
+      saveProject(freeProject);
+    }
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
     if (!recompileAudioOnly) {
       renderAll();
+    } else if (appMode === 'lesson') {
+      const newlyCompleted = syncLessonBanner();
+      if (newlyCompleted) renderTopControls();
     }
   }
 
@@ -182,6 +264,10 @@ function init(): void {
         </div>
       </div>
       <div class="controls-row">
+        <div class="mode-switch">
+          <button class="mode-pill${appMode === 'free' ? ' active' : ''}" data-app-mode="free" type="button">자유 스케치</button>
+          <button class="mode-pill${appMode === 'lesson' ? ' active' : ''}" data-app-mode="lesson" type="button">레슨 (${lessonProgress.completedIds.length}/${LESSONS.length})</button>
+        </div>
         <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
           ${transport.isPlaying() ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
         </button>
@@ -223,6 +309,12 @@ function init(): void {
       </div>
     `;
 
+    topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchMode(btn.dataset.appMode as AppMode);
+      });
+    });
+
     topbarEl.querySelector('#btn-play')?.addEventListener('click', () => {
       if (transport.isPlaying()) transport.stop();
       else transport.start(true);
@@ -254,7 +346,10 @@ function init(): void {
       const valEl = topbarEl.querySelector('#bpm-val');
       if (valEl) valEl.textContent = String(next.bpm);
       project = next;
-      saveProject(project);
+      if (appMode === 'free') {
+        freeProject = cloneProject(project);
+        saveProject(freeProject);
+      }
       transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
     });
 
@@ -324,10 +419,57 @@ function init(): void {
     });
   }
 
+  function syncLessonBanner(report = analyzeSong(compiled, project)): boolean {
+    if (appMode !== 'lesson') {
+      lessonBannerEl.hidden = true;
+      lessonBannerEl.innerHTML = '';
+      return false;
+    }
+    lessonBannerEl.hidden = false;
+    const lesson = getLessonById(lessonProgress.activeLessonId);
+    const evaluation = evaluateLesson(lesson.id, project, compiled, report);
+    let newlyCompleted = false;
+    if (evaluation.passed && !lessonProgress.completedIds.includes(lesson.id)) {
+      lessonProgress = {
+        ...lessonProgress,
+        completedIds: [...lessonProgress.completedIds, lesson.id],
+      };
+      saveLessonProgress(lessonProgress);
+      newlyCompleted = true;
+    }
+
+    renderLessonBanner(
+      lessonBannerEl,
+      lesson,
+      evaluation,
+      new Set(lessonProgress.completedIds),
+      showLessonHint,
+      {
+        onSelectLesson: (id) => selectLesson(id),
+        onToggleHint: () => {
+          showLessonHint = !showLessonHint;
+          syncLessonBanner();
+        },
+        onResetLesson: () => {
+          showLessonHint = false;
+          loadWorkspaceProject(createLessonProject(lesson.id));
+        },
+        onNextLesson: () => {
+          const idx = LESSONS.findIndex((l) => l.id === lesson.id);
+          const nextLesson = LESSONS[idx + 1];
+          if (nextLesson) selectLesson(nextLesson.id);
+        },
+        onExitToFree: () => switchMode('free'),
+      }
+    );
+    return newlyCompleted;
+  }
+
   function renderAll(): void {
+    const report = analyzeSong(compiled, project);
+    syncLessonBanner(report);
     renderTopControls();
     renderDynamicParts();
-    const report = analyzeSong(compiled, project);
     renderCoachPanel(coachEl, report, {
       onPreviewIssueFix: (issue) => {
         const previewProj = issue.applyFix(project);

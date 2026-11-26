@@ -1,0 +1,261 @@
+[
+  {
+    "id": "lesson_1_groove",
+    "order": 1,
+    "titleKo": "리듬 그루브로 분위기 바꾸기",
+    "stageTagKo": "1단계 · L1 블록",
+    "goalSummaryKo": "차분한 발라드 반주를 경쾌한 8비트 기타 또는 신스 팝 그루브로 바꾸고, 반주 에너지를 70% 이상으로 끌어올려 보자.",
+    "whyKo": "같은 코드 진행이라도 드럼·베이스·스트럼 리듬 블록과 에너지가 바뀌면 곡의 장르와 분위기가 완전히 달라진다.",
+    "hintKo": "L1 블록 조립 탭에서 '8비트 기타 스트럼'이나 '경쾌한 신스 팝' 카드를 고른 뒤, 아래 '반주 에너지' 슬라이더를 70% 이상으로 올린다.",
+    "initialProject": {
+      "activeLayer": "L1",
+      "bars": 4,
+      "bpm": 72,
+      "blocks": {
+        "progressionId": "royal_pop",
+        "grooveId": "ballad_arp",
+        "contourId": "arch",
+        "energy": 0.45,
+        "density": 0.6
+      }
+    },
+    "rules": [
+      {
+        "type": "groove_in",
+        "allowedIds": ["strum_8beat", "bouncy_pop"],
+        "labelKo": "리듬 그루브를 '8비트 기타 스트럼' 또는 '경쾌한 신스 팝'으로 바꾸기"
+      },
+      {
+        "type": "energy_min",
+        "min": 0.7,
+        "labelKo": "반주 에너지를 70% 이상으로 올리기"
+      }
+    ]
+  },
+  {
+    "id": "lesson_2_chord_mood",
+    "order": 2,
+    "titleKo": "4코드 중 1개 바꿔 여운 넣기",
+    "stageTagKo": "2단계 · L2 변형 체인",
+    "goalSummaryKo": "밝은 왕도 팝(I-V-vi-IV) 진행의 4번째 마디 코드를 iv(마이너)로 바꿔 아련한 여운을 만들어 보자.",
+    "whyKo": "메이저 4도(IV)를 같은 루트의 마이너(iv)로 바꾸는 모달 인터체인지는 팝·발라드에서 먹먹한 감정을 주는 대표 기법이다.",
+    "hintKo": "L2 변형 체인 탭에서 4마디 드롭다운을 'iv'로 바꾸거나, '아련한 대리화음 (IV -> iv)' 변형 카드를 켜면 바로 바뀐다.",
+    "initialProject": {
+      "activeLayer": "L2",
+      "bars": 4,
+      "bpm": 96,
+      "blocks": {
+        "progressionId": "royal_pop",
+        "grooveId": "strum_8beat",
+        "contourId": "arch",
+        "energy": 0.65,
+        "density": 0.6
+      },
+      "modifierOverrides": [
+        { "id": "modal_borrow", "enabled": false, "amount": 0.8 }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bar_chord_degree",
+        "barIndex": 3,
+        "degree": "iv",
+        "labelKo": "4번째 마디 코드를 'iv' 도수(Fm)로 바꾸기"
+      }
+    ]
+  },
+  {
+    "id": "lesson_3_cadence_fix",
+    "order": 3,
+    "titleKo": "열린 종지 깔끔하게 마무리하기",
+    "stageTagKo": "3단계 · 코치 & L3 음표",
+    "goalSummaryKo": "마지막 음이 '레(D5)'로 멈춰 덜 끝난 느낌을 내는 곡을 으뜸음 '도(C)' 또는 3음 '미(E)'로 안정되게 마무리하자.",
+    "whyKo": "프레이즈의 끝음이 으뜸화음의 중심음(도·미)에 착지해야 듣는 사람이 곡의 완결감을 느낀다.",
+    "hintKo": "오른쪽 이론 코치의 '수정안 미리듣기' 후 '바로 적용'을 누르거나, L3 피아노롤 마지막 마디의 '레5' 음표를 지우고 같은 자리의 초록색 코드톤('도5' 또는 '미5')을 찍어 보자.",
+    "initialProject": {
+      "activeLayer": "L3",
+      "bars": 4,
+      "bpm": 92,
+      "blocks": {
+        "progressionId": "royal_pop",
+        "grooveId": "strum_8beat",
+        "contourId": "arch",
+        "energy": 0.65,
+        "density": 0.6
+      },
+      "baked": true,
+      "bakedMelody": [
+        { "id": "l3_n1", "midi": 64, "step": 0, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l3_n2", "midi": 67, "step": 6, "duration": 2, "velocity": 0.78, "origin": "base" },
+        { "id": "l3_n3", "midi": 72, "step": 8, "duration": 4, "velocity": 0.82, "origin": "base" },
+        { "id": "l3_n4", "midi": 71, "step": 14, "duration": 2, "velocity": 0.74, "origin": "base" },
+        { "id": "l3_n5", "midi": 74, "step": 16, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l3_n6", "midi": 71, "step": 22, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "l3_n7", "midi": 67, "step": 24, "duration": 6, "velocity": 0.8, "origin": "base" },
+        { "id": "l3_n8", "midi": 69, "step": 32, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l3_n9", "midi": 72, "step": 38, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "l3_n10", "midi": 76, "step": 40, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "l3_n11", "midi": 74, "step": 46, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "l3_n12", "midi": 72, "step": 48, "duration": 4, "velocity": 0.82, "origin": "base" },
+        { "id": "l3_n13", "midi": 69, "step": 52, "duration": 4, "velocity": 0.78, "origin": "base" },
+        { "id": "l3_n14", "midi": 74, "step": 56, "duration": 6, "velocity": 0.84, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "no_issue",
+        "issueKind": "weak_cadence",
+        "labelKo": "마지막 마디 열린 종지 경고 해소하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "화음 충돌음 없이 깔끔히 유지하기"
+      }
+    ]
+  },
+  {
+    "id": "lesson_4_chord_tones",
+    "order": 4,
+    "titleKo": "마디 첫 박자에 코드톤 뼈대 세우기",
+    "stageTagKo": "4단계 · L3 피아노롤",
+    "goalSummaryKo": "1·2마디 첫 박자의 빨간 충돌음을 고치고, 비어 있는 3·4마디 첫 박자에도 초록색 코드톤을 찍어 화성 뼈대를 세워 보자.",
+    "whyKo": "코드가 바뀌는 마디 첫 박자에 그 코드의 구성음(코드톤)을 배치하면 반주와 멜로디가 단단하게 맞물린다.",
+    "hintKo": "1·2마디 첫 박자의 빨간 음표를 클릭해 지운 뒤 초록색 가이드 칸에 새 음표를 찍고, 3·4마디 맨 앞 칸에도 초록색 칸을 골라 4분(4칸) 길이로 찍어 보자.",
+    "initialProject": {
+      "activeLayer": "L3",
+      "bars": 4,
+      "bpm": 94,
+      "blocks": {
+        "progressionId": "royal_pop",
+        "grooveId": "strum_8beat",
+        "contourId": "arch",
+        "energy": 0.65,
+        "density": 0.55
+      },
+      "baked": true,
+      "bakedMelody": [
+        { "id": "l4_n1", "midi": 65, "step": 0, "duration": 4, "velocity": 0.82, "origin": "user" },
+        { "id": "l4_n2", "midi": 67, "step": 8, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l4_n3", "midi": 64, "step": 12, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "l4_n4", "midi": 72, "step": 16, "duration": 4, "velocity": 0.82, "origin": "user" },
+        { "id": "l4_n5", "midi": 71, "step": 24, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l4_n6", "midi": 74, "step": 28, "duration": 2, "velocity": 0.76, "origin": "base" },
+        { "id": "l4_n7", "midi": 72, "step": 36, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l4_n8", "midi": 76, "step": 40, "duration": 4, "velocity": 0.84, "origin": "base" },
+        { "id": "l4_n9", "midi": 69, "step": 52, "duration": 4, "velocity": 0.8, "origin": "base" },
+        { "id": "l4_n10", "midi": 72, "step": 56, "duration": 6, "velocity": 0.84, "origin": "base" }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bar_downbeat_chord_tones",
+        "bars": [0, 1, 2, 3],
+        "labelKo": "1~4마디 모든 첫 박자에 코드톤(초록색 음표) 배치하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "화음 충돌음 모두 제거하기"
+      }
+    ]
+  },
+  {
+    "id": "lesson_5_motif_var",
+    "order": 5,
+    "titleKo": "1마디 주제(모티프)를 곡으로 펼치기",
+    "stageTagKo": "5단계 · L2 변주 체인",
+    "goalSummaryKo": "주제 동기 반복을 켜서 기억에 남는 멜로디 통일감을 만들고, 경과음 또는 당김음 중 하나를 더해 생동감을 불어넣자.",
+    "whyKo": "좋은 멜로디는 매 마디 새 음을 나열하기보다 첫 마디의 리듬·음형(모티프)을 코드에 맞춰 반복하고 살짝 변주할 때 귀에 남는다.",
+    "hintKo": "L2 변형 체인 탭에서 '주제 동기 반복 (Motif)'을 켜고 강도를 50% 이상으로 맞춘 뒤, '매끄러운 경과음' 또는 '당김음 그루브' 중 하나를 켜 보자.",
+    "initialProject": {
+      "activeLayer": "L2",
+      "bars": 4,
+      "bpm": 78,
+      "seed": 11,
+      "blocks": {
+        "progressionId": "emotional_4536",
+        "grooveId": "lofi_chill",
+        "contourId": "call_response",
+        "energy": 0.65,
+        "density": 0.55
+      },
+      "modifierOverrides": [
+        { "id": "motif_repeat", "enabled": false, "amount": 0.4 },
+        { "id": "passing_tones", "enabled": false, "amount": 0.55 },
+        { "id": "syncopation", "enabled": false, "amount": 0.6 },
+        { "id": "cadence_resolve", "enabled": true, "amount": 0.9 }
+      ]
+    },
+    "rules": [
+      {
+        "type": "modifier_enabled",
+        "modifierId": "motif_repeat",
+        "minAmount": 0.5,
+        "labelKo": "'주제 동기 반복 (Motif)' 켜고 강도 50% 이상 유지하기"
+      },
+      {
+        "type": "any_modifier_enabled",
+        "modifierIds": ["passing_tones", "syncopation"],
+        "labelKo": "'매끄러운 경과음' 또는 '당김음 그루브' 중 하나 이상 켜기"
+      },
+      {
+        "type": "min_score",
+        "minScore": 85,
+        "labelKo": "이론 코치 균형 점수 85점 이상 달성하기"
+      }
+    ]
+  },
+  {
+    "id": "lesson_6_eight_bars",
+    "order": 6,
+    "titleKo": "8마디 완곡 스케치 마무리",
+    "stageTagKo": "6단계 · 종합 8마디",
+    "goalSummaryKo": "4마디 루프를 8마디로 확장하고 후반부 클라이맥스(고조)와 안정적인 마무리를 갖춘 완곡 스케치를 완성해 보자.",
+    "whyKo": "짧은 4마디 아이디어를 8마디로 늘릴 때 후반부에 음역을 올려 주면 듣는 재미가 살아나고 기승전결이 또렷해진다.",
+    "hintKo": "상단에서 마디를 '8마디'로 바꾸고, L2 변형 체인에서 '후반부 옥타브 리프트'와 '안정적 마침표'를 켠 뒤 이론 코치 경고가 없는지 확인하자.",
+    "initialProject": {
+      "activeLayer": "L1",
+      "bars": 4,
+      "bpm": 98,
+      "seed": 1,
+      "blocks": {
+        "progressionId": "sad_6415",
+        "grooveId": "strum_8beat",
+        "contourId": "arch",
+        "energy": 0.7,
+        "density": 0.6
+      },
+      "modifierOverrides": [
+        { "id": "octave_lift", "enabled": false, "amount": 0.75 },
+        { "id": "cadence_resolve", "enabled": true, "amount": 0.9 }
+      ]
+    },
+    "rules": [
+      {
+        "type": "bars_equals",
+        "bars": 8,
+        "labelKo": "곡 길이를 8마디로 확장하기"
+      },
+      {
+        "type": "second_half_climax",
+        "labelKo": "후반부(5~8마디)에 음역이 높아지는 클라이맥스 만들기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "clash",
+        "labelKo": "화음 충돌음 없이 정리하기"
+      },
+      {
+        "type": "no_issue",
+        "issueKind": "weak_cadence",
+        "labelKo": "안정적 종지로 마무리하기"
+      },
+      {
+        "type": "min_score",
+        "minScore": 85,
+        "labelKo": "이론 코치 균형 점수 85점 이상 달성하기"
+      }
+    ]
+  }
+]
