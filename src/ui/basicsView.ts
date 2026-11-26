@@ -2,7 +2,9 @@ import {
   BASIC_LESSONS,
   type BasicLessonDefinition,
   type BasicLessonEvaluation,
+  type BasicLessonKindTag,
   type CompareDemo,
+  getBasicUnits,
 } from '../core/basics';
 import type { CompiledSong } from '../core/compiler';
 import { PRESETS, type SongProject, cloneProject } from '../core/model';
@@ -18,6 +20,12 @@ import {
 import { buildChordDiagramSvg } from './guitarStrip';
 import { renderFocusedPianoRoll } from './layers';
 
+export interface BasicsMapCallbacks {
+  onStartLesson: (lessonId: string) => void;
+  onResumeActive: () => void;
+  onReviewRandomCompleted: () => void;
+}
+
 export interface BasicsViewState {
   completedIds: ReadonlySet<string>;
   activeStep: number;
@@ -29,7 +37,9 @@ export interface BasicsViewState {
 }
 
 export interface BasicsViewCallbacks {
-  onSelectLesson: (lessonId: string) => void;
+  onBackToMap: () => void;
+  onPrevLesson: () => void;
+  onNextLesson: () => void;
   onPlayDemo: (demo: CompareDemo) => void;
   onTogglePlay: () => void;
   onUndo: () => void;
@@ -41,7 +51,6 @@ export interface BasicsViewCallbacks {
   onAuditionPitch: (midi: number) => void;
   onAuditionChordWithNote: (voicingMidi: number[], midi: number) => void;
   onAuditionChord: (chord: ResolvedChord) => void;
-  onNextLesson: () => void;
   onGoToMissions: () => void;
   onOpenInFreeSketch: () => void;
 }
@@ -67,12 +76,102 @@ const CHORD_SWAP_OPTIONS: Array<{ degree: DegreeSymbol; labelKo: string }> = [
   { degree: 'vi', labelKo: 'Am (vi)' },
 ];
 
+function kindBadgeClass(tag: BasicLessonKindTag): string {
+  if (tag === '개념') return 'concept';
+  if (tag === '반복') return 'drill';
+  if (tag === '클래식') return 'classic';
+  return 'review';
+}
+
+export function renderBasicsCourseMap(
+  container: HTMLElement,
+  completedIds: ReadonlySet<string>,
+  activeLessonId: string,
+  callbacks: BasicsMapCallbacks
+): void {
+  const units = getBasicUnits();
+  const totalCount = BASIC_LESSONS.length;
+  const doneCount = completedIds.size;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const activeLesson = BASIC_LESSONS.find((l) => l.id === activeLessonId) ?? BASIC_LESSONS[0];
+
+  const unitsHtml = units
+    .map((unit) => {
+      const unitDone = unit.lessons.filter((l) => completedIds.has(l.id)).length;
+      const unitPct = Math.round((unitDone / unit.lessons.length) * 100);
+      const rowsHtml = unit.lessons
+        .map((lesson) => {
+          const isDone = completedIds.has(lesson.id);
+          const isCurrent = lesson.id === activeLesson.id;
+          return `
+            <button class="unit-lesson-row${isDone ? ' done' : ''}${isCurrent ? ' current' : ''}" data-start-basic="${lesson.id}" type="button">
+              <span class="unit-lesson-num">${isDone ? '✓' : lesson.order}</span>
+              <span class="unit-lesson-main">
+                <strong>${lesson.order}강. ${lesson.titleKo}</strong>
+                <span>${lesson.unlockedConceptKo}</span>
+              </span>
+              <span class="kind-badge ${kindBadgeClass(lesson.kindTagKo)}">${lesson.kindTagKo}</span>
+            </button>
+          `;
+        })
+        .join('');
+
+      return `
+        <section class="unit-card">
+          <div class="unit-card-head">
+            <div>
+              <h3>${unit.unitTitleKo}</h3>
+              <p>${unit.unitDescKo}</p>
+            </div>
+            <span class="unit-count-badge">${unitDone} / ${unit.lessons.length}</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:${unitPct}%"></div></div>
+          <div class="unit-lesson-list">${rowsHtml}</div>
+        </section>
+      `;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="learn-shell">
+      <section class="course-map-hero">
+        <div class="course-hero-info">
+          <div class="lesson-stage-badge">기초 입문 커리큘럼 · 4유닛 ${totalCount}강</div>
+          <h1 class="learn-title" style="margin-top:6px;">화음 → 뼈대 → 리듬·클래식 → 편곡 단계별 학습</h1>
+          <p class="learn-subtitle">각 강의마다 귀로 먼저 비교하고 직접 한 음씩 쌓으며 감각을 익힌다. 막히지 않도록 모든 강이 열려 있어 원하는 주제를 바로 눌러 볼 수도 있다.</p>
+          <div class="course-hero-progress">
+            <div class="progress-track" style="flex:1;"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <strong>${doneCount} / ${totalCount}강 완료 (${pct}%)</strong>
+          </div>
+        </div>
+        <div class="course-hero-actions">
+          <button class="btn btn-primary" id="btn-basics-resume" type="button">이어서 학습하기 (${activeLesson.order}강)</button>
+          <button class="btn" id="btn-basics-review" type="button"${doneCount === 0 ? ' disabled' : ''}>완료한 강 랜덤 복습</button>
+        </div>
+      </section>
+
+      <div class="unit-grid">${unitsHtml}</div>
+    </div>
+  `;
+
+  container.querySelector('#btn-basics-resume')?.addEventListener('click', callbacks.onResumeActive);
+  container.querySelector('#btn-basics-review')?.addEventListener('click', callbacks.onReviewRandomCompleted);
+  container.querySelectorAll<HTMLButtonElement>('[data-start-basic]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.startBasic;
+      if (id) callbacks.onStartLesson(id);
+    });
+  });
+}
+
 function renderChordTonePickBody(
   project: SongProject,
   compiled: CompiledSong,
+  targetBars: number[],
   selectedPickBar: number
 ): string {
-  const targetBars = [0, 1];
+  const safeSelectedBar = targetBars.includes(selectedPickBar) ? selectedPickBar : targetBars[0] ?? 0;
+
   const cardsHtml = targetBars
     .map((b) => {
       const chord = compiled.resolvedChords[b];
@@ -88,7 +187,7 @@ function renderChordTonePickBody(
             : '긴장음';
       const statusCls = !note ? '' : note.role === 'chord_tone' ? 'good' : note.role === 'clash' ? 'warn' : '';
       return `
-        <button class="pick-chord-card${selectedPickBar === b ? ' selected' : ''}" data-pick-bar="${b}" type="button">
+        <button class="pick-chord-card${safeSelectedBar === b ? ' selected' : ''}" data-pick-bar="${b}" type="button">
           <div class="pick-chord-info">
             <span class="chord-bar">${b + 1}마디 코드</span>
             <strong class="chord-symbol">${chord.symbol}</strong>
@@ -101,8 +200,8 @@ function renderChordTonePickBody(
     })
     .join('');
 
-  const activeChord = compiled.resolvedChords[selectedPickBar] ?? compiled.resolvedChords[0];
-  const activeNote = compiled.melody.find((n) => n.step === selectedPickBar * 16);
+  const activeChord = compiled.resolvedChords[safeSelectedBar] ?? compiled.resolvedChords[0];
+  const activeNote = compiled.melody.find((n) => n.step === safeSelectedBar * 16);
   const activeTones = activeChord.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
 
   const keysHtml = SOLFEGE_KEYS.map((k) => {
@@ -126,7 +225,7 @@ function renderChordTonePickBody(
     `;
   }).join('');
 
-  let feedbackMsg = `${selectedPickBar + 1}마디 ${activeChord.symbol} 코드(${activeTones}) 위에 올릴 음을 아래 건반에서 눌러 소리를 들어 보자.`;
+  let feedbackMsg = `${safeSelectedBar + 1}마디 ${activeChord.symbol} 코드(${activeTones}) 위에 올릴 음을 아래 건반에서 눌러 소리를 들어 보자.`;
   if (activeNote) {
     const nm = koreanNoteName(activeNote.midi);
     if (activeNote.role === 'chord_tone') {
@@ -142,7 +241,7 @@ function renderChordTonePickBody(
     <div class="chord-pick-grid">${cardsHtml}</div>
     <div class="solfege-picker-box">
       <div class="solfege-picker-head">
-        <strong>${selectedPickBar + 1}마디 (${activeChord.symbol}) 위에 올릴 음 고르기</strong>
+        <strong>${safeSelectedBar + 1}마디 (${activeChord.symbol}) 위에 올릴 음 고르기</strong>
         <span>클릭하면 코드와 음이 함께 울린다</span>
       </div>
       <div class="solfege-keys">${keysHtml}</div>
@@ -217,19 +316,12 @@ export function renderBasicsView(
   state: BasicsViewState,
   callbacks: BasicsViewCallbacks
 ): void {
+  const isFirstLesson = lesson.order <= 1;
   const isLastLesson = lesson.order >= BASIC_LESSONS.length;
-
-  const stepperHtml = BASIC_LESSONS.map((item) => {
-    const done = state.completedIds.has(item.id);
-    const active = item.id === lesson.id;
-    const cls = `lesson-pill${active ? ' active' : ''}${done ? ' done' : ''}`;
-    return `
-      <button class="${cls}" data-basic-id="${item.id}" type="button" title="${item.titleKo}">
-        <span class="lesson-pill-num">${done ? '✓' : item.order}</span>
-        <span>${item.titleKo}</span>
-      </button>
-    `;
-  }).join('');
+  const targetPickBars = lesson.pickBars ?? [0, 1];
+  const activePickBar = targetPickBars.includes(state.selectedPickBar)
+    ? state.selectedPickBar
+    : targetPickBars[0] ?? 0;
 
   const demosHtml = lesson.compareDemos
     .map(
@@ -291,7 +383,7 @@ export function renderBasicsView(
 
   let workspaceHtml = '';
   if (lesson.workspaceKind === 'chord_tone_pick') {
-    workspaceHtml = renderChordTonePickBody(project, compiled, state.selectedPickBar);
+    workspaceHtml = renderChordTonePickBody(project, compiled, targetPickBars, activePickBar);
   } else if (lesson.workspaceKind === 'chord_swap') {
     workspaceHtml = renderChordSwapBody(compiled);
   } else if (lesson.workspaceKind === 'classic_arrange') {
@@ -311,7 +403,7 @@ export function renderBasicsView(
                 <button class="btn" id="btn-basics-open-free" type="button">이 편곡을 자유 스케치에서 다듬기 →</button>
                 <button class="btn btn-primary" id="btn-basics-missions" type="button">실전 미션으로 넘어가기 →</button>
               `
-              : `<button class="btn btn-primary" id="btn-basics-next" type="button">다음 강으로 →</button>`
+              : `<button class="btn btn-primary" id="btn-basics-next-pass" type="button">다음 강으로 →</button>`
           }
         </div>
       </div>
@@ -320,14 +412,22 @@ export function renderBasicsView(
 
   container.innerHTML = `
     <div class="learn-shell">
-      <div class="lesson-stepper">${stepperHtml}</div>
+      <div class="lesson-nav-bar">
+        <div class="controls-row">
+          <button class="btn" id="btn-basics-map" type="button">← 코스 목차로</button>
+          <span class="lesson-stage-badge">${lesson.unitTitleKo}</span>
+          <span class="kind-badge ${kindBadgeClass(lesson.kindTagKo)}">${lesson.kindTagKo}</span>
+          <span class="concept-unlock-chip">이번 강 핵심: ${lesson.unlockedConceptKo}</span>
+        </div>
+        <div class="controls-row">
+          <span class="lesson-progress-text">${lesson.order}강 / ${BASIC_LESSONS.length}강</span>
+          <button class="btn btn-chip" id="btn-basics-prev" type="button"${isFirstLesson ? ' disabled' : ''}>◀ 이전</button>
+          <button class="btn btn-chip" id="btn-basics-next" type="button"${isLastLesson ? ' disabled' : ''}>다음 ▶</button>
+        </div>
+      </div>
 
       <article class="learn-card">
         <div class="learn-header">
-          <div class="lesson-meta-row">
-            <span class="lesson-stage-badge">${lesson.categoryKo}</span>
-            <span class="lesson-progress-text">${lesson.order}강 / ${BASIC_LESSONS.length}강</span>
-          </div>
           <h1 class="learn-title">${lesson.order}. ${lesson.titleKo}</h1>
           <p class="learn-subtitle">${lesson.subtitleKo}</p>
         </div>
@@ -376,7 +476,6 @@ export function renderBasicsView(
     </div>
   `;
 
-  // 마운트된 피아노롤이 있는 강의면 피아노롤을 그린다.
   const prMount = container.querySelector<HTMLElement>('#basics-pr-mount');
   if (prMount) {
     renderFocusedPianoRoll(prMount, project, compiled, state.activeStep, {
@@ -388,12 +487,10 @@ export function renderBasicsView(
     });
   }
 
-  container.querySelectorAll<HTMLButtonElement>('[data-basic-id]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.basicId;
-      if (id && id !== lesson.id) callbacks.onSelectLesson(id);
-    });
-  });
+  container.querySelector('#btn-basics-map')?.addEventListener('click', callbacks.onBackToMap);
+  container.querySelector('#btn-basics-prev')?.addEventListener('click', callbacks.onPrevLesson);
+  container.querySelector('#btn-basics-next')?.addEventListener('click', callbacks.onNextLesson);
+  container.querySelector('#btn-basics-next-pass')?.addEventListener('click', callbacks.onNextLesson);
 
   container.querySelectorAll<HTMLButtonElement>('[data-play-demo]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -406,12 +503,10 @@ export function renderBasicsView(
   container.querySelector('#btn-basics-undo')?.addEventListener('click', callbacks.onUndo);
   container.querySelector('#btn-basics-hint')?.addEventListener('click', callbacks.onToggleHint);
   container.querySelector('#btn-basics-reset')?.addEventListener('click', callbacks.onReset);
-  container.querySelector('#btn-basics-next')?.addEventListener('click', callbacks.onNextLesson);
   container.querySelector('#btn-basics-missions')?.addEventListener('click', callbacks.onGoToMissions);
   container.querySelector('#btn-basics-open-free')?.addEventListener('click', callbacks.onOpenInFreeSketch);
   container.querySelector('#btn-basics-to-free')?.addEventListener('click', callbacks.onOpenInFreeSketch);
 
-  // 1강: 코드 카드 및 도레미 건반
   container.querySelectorAll<HTMLButtonElement>('[data-pick-bar]').forEach((btn) => {
     btn.addEventListener('click', () => {
       callbacks.onSelectPickBar(Number(btn.dataset.pickBar));
@@ -421,14 +516,14 @@ export function renderBasicsView(
   container.querySelectorAll<HTMLButtonElement>('[data-pick-midi]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const midi = Number(btn.dataset.pickMidi);
-      const chord = compiled.resolvedChords[state.selectedPickBar] ?? compiled.resolvedChords[0];
+      const chord = compiled.resolvedChords[activePickBar] ?? compiled.resolvedChords[0];
       callbacks.onAuditionChordWithNote(chord.voicingMidi, midi);
 
-      const step = state.selectedPickBar * 16;
+      const step = activePickBar * 16;
       const next = cloneProject(project);
       const filtered = next.bakedMelody.filter((n) => n.step !== step);
       filtered.push({
-        id: `pick_${state.selectedPickBar}_${Date.now()}`,
+        id: `pick_${activePickBar}_${Date.now()}`,
         midi,
         step,
         duration: 12,
@@ -441,7 +536,6 @@ export function renderBasicsView(
     });
   });
 
-  // 6강: 코드 교체 버튼
   container.querySelectorAll<HTMLButtonElement>('[data-swap-bar]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const barIdx = Number(btn.dataset.swapBar);
@@ -456,7 +550,6 @@ export function renderBasicsView(
     });
   });
 
-  // 7강: 캐논 편곡 컨트롤
   container.querySelectorAll<HTMLButtonElement>('[data-arr-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const next = cloneProject(project);

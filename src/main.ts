@@ -28,7 +28,7 @@ import {
   createDefaultProject,
 } from './core/model';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
-import { renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
+import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
 import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
@@ -152,6 +152,7 @@ function init(): void {
   if (!root) return;
 
   let appMode: AppMode = loadInitialMode();
+  let basicsScreen: 'map' | 'lesson' = 'map';
   let freeProject = loadInitialProject();
   let basicsProgress = loadProgress(BASICS_STORAGE_KEY, BASIC_LESSONS);
   let lessonProgress = loadProgress(LESSON_STORAGE_KEY, LESSONS);
@@ -231,13 +232,21 @@ function init(): void {
   }
 
   function switchMode(mode: AppMode): void {
-    if (mode === appMode) return;
+    if (mode === appMode) {
+      if (mode === 'basics' && basicsScreen !== 'map') {
+        basicsScreen = 'map';
+        transport.stop();
+        renderAll();
+      }
+      return;
+    }
     appMode = mode;
     saveMode(mode);
     showBasicsHint = false;
     showLessonHint = false;
     selectedPickBar = 0;
     if (mode === 'basics') {
+      basicsScreen = 'map';
       loadWorkspaceProject(createBasicLessonProject(basicsProgress.activeLessonId));
     } else if (mode === 'lesson') {
       loadWorkspaceProject(createLessonProject(lessonProgress.activeLessonId));
@@ -249,6 +258,7 @@ function init(): void {
   function selectBasicLesson(lessonId: string): void {
     basicsProgress = { ...basicsProgress, activeLessonId: lessonId };
     saveProgress(BASICS_STORAGE_KEY, basicsProgress);
+    basicsScreen = 'lesson';
     showBasicsHint = false;
     selectedPickBar = 0;
     if (appMode !== 'basics') {
@@ -256,6 +266,14 @@ function init(): void {
       saveMode('basics');
     }
     loadWorkspaceProject(createBasicLessonProject(lessonId));
+  }
+
+  function reviewRandomCompletedBasic(): void {
+    const done = basicsProgress.completedIds;
+    if (done.length === 0) return;
+    const pool = done.length > 1 ? done.filter((id) => id !== basicsProgress.activeLessonId) : done;
+    const picked = pool[Math.floor(Math.random() * pool.length)] ?? done[0];
+    selectBasicLesson(picked);
   }
 
   function selectLesson(lessonId: string): void {
@@ -585,6 +603,20 @@ function init(): void {
   }
 
   function renderBasicsMode(report = analyzeSong(compiled, project)): void {
+    if (basicsScreen === 'map') {
+      renderBasicsCourseMap(
+        basicsRootEl,
+        new Set(basicsProgress.completedIds),
+        basicsProgress.activeLessonId,
+        {
+          onStartLesson: (id) => selectBasicLesson(id),
+          onResumeActive: () => selectBasicLesson(basicsProgress.activeLessonId),
+          onReviewRandomCompleted: reviewRandomCompletedBasic,
+        }
+      );
+      return;
+    }
+
     const lesson = getBasicLessonById(basicsProgress.activeLessonId);
     const evaluation = evaluateBasicLesson(lesson.id, project, compiled, report);
     if (evaluation.passed && !basicsProgress.completedIds.includes(lesson.id)) {
@@ -611,7 +643,21 @@ function init(): void {
         selectedPickBar,
       },
       {
-        onSelectLesson: (id) => selectBasicLesson(id),
+        onBackToMap: () => {
+          basicsScreen = 'map';
+          transport.stop();
+          renderAll();
+        },
+        onPrevLesson: () => {
+          const idx = BASIC_LESSONS.findIndex((l) => l.id === lesson.id);
+          const prevLesson = BASIC_LESSONS[idx - 1];
+          if (prevLesson) selectBasicLesson(prevLesson.id);
+        },
+        onNextLesson: () => {
+          const idx = BASIC_LESSONS.findIndex((l) => l.id === lesson.id);
+          const nextLesson = BASIC_LESSONS[idx + 1];
+          if (nextLesson) selectBasicLesson(nextLesson.id);
+        },
         onPlayDemo: (demo: CompareDemo) => {
           const demoCompiled = compileCompareDemo(demo, project.keyRoot);
           transport.playOncePreview(demoCompiled, demo.bpm, 'piano', {
@@ -647,11 +693,6 @@ function init(): void {
         onAuditionPitch: auditionPitch,
         onAuditionChordWithNote: auditionChordWithNote,
         onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, 'guitar'),
-        onNextLesson: () => {
-          const idx = BASIC_LESSONS.findIndex((l) => l.id === lesson.id);
-          const nextLesson = BASIC_LESSONS[idx + 1];
-          if (nextLesson) selectBasicLesson(nextLesson.id);
-        },
         onGoToMissions: () => switchMode('lesson'),
         onOpenInFreeSketch: () => openProjectInFreeSketch(project),
       }

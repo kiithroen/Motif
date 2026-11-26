@@ -12,6 +12,7 @@ import {
 import { type DegreeSymbol, type ScaleMode, wrapPc } from './theory';
 
 export type BasicLessonWorkspaceKind = 'chord_tone_pick' | 'piano_roll' | 'chord_swap' | 'classic_arrange';
+export type BasicLessonKindTag = '개념' | '반복' | '클래식' | '종합';
 
 export type BasicLessonRule =
   | { type: 'bar_downbeat_chord_tones'; bars: number[]; labelKo: string }
@@ -21,6 +22,9 @@ export type BasicLessonRule =
   | { type: 'min_rest_ratio'; minRatio: number; labelKo: string }
   | { type: 'last_note_pc'; allowedPcs: number[]; labelKo: string }
   | { type: 'bar_chord_degree'; barIndex: number; degree: DegreeSymbol; labelKo: string }
+  | { type: 'bar_chord_in'; barIndex: number; allowedDegrees: DegreeSymbol[]; labelKo: string }
+  | { type: 'mode_equals'; mode: ScaleMode; labelKo: string }
+  | { type: 'min_note_count'; minCount: number; labelKo: string }
   | { type: 'groove_not'; disallowedId: string; labelKo: string }
   | { type: 'arrangement_changed'; labelKo: string };
 
@@ -62,6 +66,11 @@ export interface BasicLessonInitialProject {
 export interface BasicLessonDefinition {
   id: string;
   order: number;
+  unitId: string;
+  unitTitleKo: string;
+  unitDescKo: string;
+  kindTagKo: BasicLessonKindTag;
+  unlockedConceptKo: string;
   categoryKo: string;
   titleKo: string;
   subtitleKo: string;
@@ -69,11 +78,19 @@ export interface BasicLessonDefinition {
   theoryPoints: TheoryPoint[];
   annotations?: LessonAnnotation[];
   workspaceKind: BasicLessonWorkspaceKind;
+  pickBars?: number[];
   showDurationPicker?: boolean;
   goalSummaryKo: string;
   hintKo: string;
   initialProject: BasicLessonInitialProject;
   rules: BasicLessonRule[];
+}
+
+export interface BasicUnitGroup {
+  unitId: string;
+  unitTitleKo: string;
+  unitDescKo: string;
+  lessons: BasicLessonDefinition[];
 }
 
 export interface BasicLessonCheckResult {
@@ -90,6 +107,24 @@ export interface BasicLessonEvaluation {
 }
 
 export const BASIC_LESSONS = basicsRaw as BasicLessonDefinition[];
+
+export function getBasicUnits(): BasicUnitGroup[] {
+  const map = new Map<string, BasicUnitGroup>();
+  for (const lesson of BASIC_LESSONS) {
+    let group = map.get(lesson.unitId);
+    if (!group) {
+      group = {
+        unitId: lesson.unitId,
+        unitTitleKo: lesson.unitTitleKo,
+        unitDescKo: lesson.unitDescKo,
+        lessons: [],
+      };
+      map.set(lesson.unitId, group);
+    }
+    group.lessons.push(lesson);
+  }
+  return Array.from(map.values());
+}
 
 export function getBasicLessonById(lessonId: string): BasicLessonDefinition {
   return BASIC_LESSONS.find((l) => l.id === lessonId) ?? BASIC_LESSONS[0];
@@ -206,6 +241,17 @@ function evaluateRule(
 
     case 'bar_chord_degree':
       return compiled.resolvedChords[rule.barIndex]?.degree === rule.degree;
+
+    case 'bar_chord_in': {
+      const deg = compiled.resolvedChords[rule.barIndex]?.degree;
+      return Boolean(deg && rule.allowedDegrees.includes(deg));
+    }
+
+    case 'mode_equals':
+      return project.mode === rule.mode;
+
+    case 'min_note_count':
+      return compiled.melody.length >= rule.minCount;
 
     case 'groove_not':
       return project.blocks.grooveId !== rule.disallowedId;
