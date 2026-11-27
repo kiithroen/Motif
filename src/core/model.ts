@@ -96,6 +96,7 @@ export interface GroovePreset {
   hats: number[];
   bassSteps: number[];
   chordStrums: StrumPattern[];
+  pianoPattern?: StrumPattern[];
 }
 
 export interface ContourPreset {

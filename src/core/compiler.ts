@@ -1,5 +1,6 @@
 import {
   PRESETS,
+  type ChordInstrument,
   type ChordSlot,
   type DrumEvent,
   type L1Blocks,
@@ -313,12 +314,18 @@ function applyModifierPipeline(
   return sortAndTrimOverlaps(notes, totalSteps);
 }
 
-function compileAccompaniment(project: SongProject, resolvedChords: ResolvedChord[]): {
+function compileAccompaniment(
+  project: SongProject,
+  resolvedChords: ResolvedChord[],
+  chordInstrument: ChordInstrument = 'piano'
+): {
   chords: NoteEvent[];
   bass: NoteEvent[];
   drums: DrumEvent[];
 } {
   const groove = PRESETS.grooves.find((g) => g.id === project.blocks.grooveId) ?? PRESETS.grooves[0];
+  const pattern =
+    chordInstrument === 'piano' && groove.pianoPattern ? groove.pianoPattern : groove.chordStrums;
   const chords: NoteEvent[] = [];
   const bass: NoteEvent[] = [];
   const drums: DrumEvent[] = [];
@@ -327,7 +334,7 @@ function compileAccompaniment(project: SongProject, resolvedChords: ResolvedChor
     const rc = resolvedChords[bar];
     const barStep = bar * 16;
 
-    for (const st of groove.chordStrums) {
+    for (const st of pattern) {
       if (st.direction === 'arp0' || st.direction === 'arp1' || st.direction === 'arp2') {
         const idx = st.direction === 'arp0' ? 0 : st.direction === 'arp1' ? 1 : 2;
         const pitch = rc.voicingMidi[idx % rc.voicingMidi.length];
@@ -376,11 +383,14 @@ function compileAccompaniment(project: SongProject, resolvedChords: ResolvedChor
   return { chords, bass, drums };
 }
 
-export function compileSong(project: SongProject): CompiledSong {
+export function compileSong(
+  project: SongProject,
+  chordInstrument: ChordInstrument = 'piano'
+): CompiledSong {
   const totalSteps = project.bars * 16;
   const slots = effectiveChordSlots(project);
   const resolvedChords = slots.map((s) => resolveChord(s.degree, project.keyRoot, project.mode));
-  const { chords, bass, drums } = compileAccompaniment(project, resolvedChords);
+  const { chords, bass, drums } = compileAccompaniment(project, resolvedChords, chordInstrument);
 
   const rawMelody = project.baked
     ? sortAndTrimOverlaps(
@@ -418,7 +428,11 @@ export function bakeProjectMelody(project: SongProject): SongProject {
   return next;
 }
 
-export function previewModifierDiff(project: SongProject, modifierId: ModifierId): ModifierDiff {
+export function previewModifierDiff(
+  project: SongProject,
+  modifierId: ModifierId,
+  chordInstrument: ChordInstrument = 'piano'
+): ModifierDiff {
   const offProj = cloneProject(project);
   offProj.baked = false;
   offProj.chain.modifiers = offProj.chain.modifiers.map((m) =>
@@ -431,8 +445,8 @@ export function previewModifierDiff(project: SongProject, modifierId: ModifierId
     m.id === modifierId ? { ...m, enabled: true } : m
   );
 
-  const before = compileSong(offProj);
-  const after = compileSong(onProj);
+  const before = compileSong(offProj, chordInstrument);
+  const after = compileSong(onProj, chordInstrument);
 
   const beforeMap = new Map(before.melody.map((n) => [n.step, `${n.midi}:${n.duration}`]));
   const afterMap = new Map(after.melody.map((n) => [n.step, `${n.midi}:${n.duration}`]));

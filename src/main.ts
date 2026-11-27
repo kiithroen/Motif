@@ -151,8 +151,8 @@ function saveProgress(key: string, progress: ProgressStore): void {
   }
 }
 
-function downloadMidi(project: SongProject): void {
-  const compiled = compileSong(project);
+function downloadMidi(project: SongProject, chordView: ChordInstrument): void {
+  const compiled = compileSong(project, chordView);
   const bytes = exportToMidi(compiled, project);
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -188,7 +188,7 @@ function init(): void {
       : appMode === 'lesson'
         ? createLessonProject(lessonProgress.activeLessonId)
         : cloneProject(freeProject);
-  let compiled = compileSong(project);
+  let compiled = compileSong(project, chordView);
   let activeStep = -1;
   let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
   const history = new ProjectHistory();
@@ -250,7 +250,7 @@ function init(): void {
     history.clear();
     activeStep = -1;
     project = cloneProject(target);
-    compiled = compileSong(project);
+    compiled = compileSong(project, chordView);
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
     renderAll();
   }
@@ -358,7 +358,7 @@ function init(): void {
     }
 
     project = resolvedNext;
-    compiled = compileSong(project);
+    compiled = compileSong(project, chordView);
     if (appMode === 'free') {
       freeProject = cloneProject(project);
       saveProject(freeProject);
@@ -397,6 +397,7 @@ function init(): void {
     if (nextView === chordView) return;
     chordView = nextView;
     saveChordView(chordView);
+    compiled = compileSong(project, chordView);
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
     renderAll();
   }
@@ -592,7 +593,7 @@ function init(): void {
     });
 
     topbarEl.querySelector('#btn-midi')?.addEventListener('click', () => {
-      downloadMidi(project);
+      downloadMidi(project, chordView);
     });
   }
 
@@ -631,7 +632,7 @@ function init(): void {
       onProjectChange: (next, audioOnly) => updateState(next, audioOnly),
       onAuditionPitch: auditionPitch,
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
-        const diff = previewModifierDiff(project, modId);
+        const diff = previewModifierDiff(project, modId, chordView);
         transport.playOncePreview(
           after ? diff.after : diff.before,
           project.bpm,
@@ -756,7 +757,7 @@ function init(): void {
           if (nextLesson) selectBasicLesson(nextLesson.id);
         },
         onPlayDemo: (demo: CompareDemo) => {
-          const demoCompiled = compileCompareDemo(demo, project.keyRoot);
+          const demoCompiled = compileCompareDemo(demo, project.keyRoot, chordView);
           transport.playOncePreview(
             demoCompiled,
             demo.bpm,
@@ -841,7 +842,7 @@ function init(): void {
     renderCoachPanel(coachEl, report, {
       onPreviewIssueFix: (issue) => {
         const previewProj = issue.applyFix(project);
-        const previewCompiled = compileSong(previewProj);
+        const previewCompiled = compileSong(previewProj, chordView);
         transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes, chordView);
         renderTopControls();
       },

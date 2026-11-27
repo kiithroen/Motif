@@ -5,7 +5,7 @@ import {
   previewModifierDiff,
   unpackBlocksToChain,
 } from '../src/core/compiler';
-import { createDefaultProject } from '../src/core/model';
+import { PRESETS, createDefaultProject } from '../src/core/model';
 
 describe('3-tier song compiler', () => {
   it('is deterministic for the same seed and changes when seed changes', () => {
@@ -52,5 +52,25 @@ describe('3-tier song compiler', () => {
     const c = compileSong(p);
     expect(c.melody[0].midi).toBe(79);
     expect(c.melody[0].origin).toBe('user');
+  });
+
+  it('uses groove pianoPattern in piano mode and chordStrums in guitar mode', () => {
+    for (const groove of PRESETS.grooves) {
+      const p = createDefaultProject();
+      p.bars = 4;
+      p.blocks.grooveId = groove.id;
+
+      const pianoComp = compileSong(p, 'piano');
+      const guitarComp = compileSong(p, 'guitar');
+
+      const bar0PianoSteps = [...new Set(pianoComp.chords.filter((c) => c.step < 16).map((c) => c.step))];
+      const bar0GuitarSteps = [...new Set(guitarComp.chords.filter((c) => c.step < 16).map((c) => c.step))];
+
+      const expectedPianoSteps = (groove.pianoPattern ?? groove.chordStrums).map((s) => s.step);
+      const expectedGuitarSteps = groove.chordStrums.map((s) => s.step);
+
+      expect(bar0PianoSteps).toEqual(expectedPianoSteps);
+      expect(bar0GuitarSteps).toEqual(expectedGuitarSteps);
+    }
   });
 });

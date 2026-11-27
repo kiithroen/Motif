@@ -2,6 +2,7 @@ import basicsRaw from '../data/basics.json';
 import { type DiagnosisReport, type IssueKind, analyzeSong } from './analyzer';
 import { type CompiledSong, compileSong } from './compiler';
 import {
+  type ChordInstrument,
   type L1Blocks,
   type NoteEvent,
   type SongProject,
@@ -162,7 +163,11 @@ export function createBasicLessonProject(lessonId: string): SongProject {
   };
 }
 
-export function compileCompareDemo(demo: CompareDemo, keyRoot = 0): CompiledSong {
+export function compileCompareDemo(
+  demo: CompareDemo,
+  keyRoot = 0,
+  chordInstrument: ChordInstrument = 'piano'
+): CompiledSong {
   const base = createDefaultProject();
   const fullBars: 4 | 8 = demo.chords.length > 4 ? 8 : 4;
   const paddedChords = Array.from({ length: fullBars }, (_, bar) => ({
@@ -188,7 +193,7 @@ export function compileCompareDemo(demo: CompareDemo, keyRoot = 0): CompiledSong
     bakedMelody: demo.melody.map((n) => ({ ...n })),
   };
 
-  const compiled = compileSong(proj);
+  const compiled = compileSong(proj, chordInstrument);
   const targetBars = demo.chords.length;
   const totalSteps = targetBars * 16;
 
