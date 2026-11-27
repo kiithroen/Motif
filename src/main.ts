@@ -1,4 +1,10 @@
 import './styles.css';
+import {
+  loadGeminiSettings,
+  maskApiKey,
+  requestGeminiCoach,
+  saveGeminiSettings,
+} from './ai/geminiCoach';
 import { MotifAudioEngine, type SampleLoadStatus } from './audio/instruments';
 import { MotifTransport, type TrackMuteState } from './audio/transport';
 import { analyzeSong } from './core/analyzer';
@@ -10,6 +16,7 @@ import {
   evaluateBasicLesson,
   getBasicLessonById,
 } from './core/basics';
+import { applyCoachPatch, describeCoachPatch } from './core/coachPatch';
 import {
   bakeProjectMelody,
   compileSong,
@@ -30,7 +37,7 @@ import {
 } from './core/model';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
-import { renderCoachPanel } from './ui/coachPanel';
+import { type GeminiCoachUiState, renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
@@ -194,6 +201,20 @@ function init(): void {
   const history = new ProjectHistory();
   const mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
 
+  let geminiSettings = loadGeminiSettings();
+  let geminiAbort: AbortController | null = null;
+  const geminiUiState: GeminiCoachUiState = {
+    hasApiKey: Boolean(geminiSettings.apiKey),
+    maskedKey: maskApiKey(geminiSettings.apiKey),
+    selectedModel: geminiSettings.model,
+    settingsOpen: false,
+    promptDraft: '',
+    loading: false,
+    error: null,
+    suggestion: null,
+    activePreview: null,
+  };
+
   const audio = new MotifAudioEngine();
   const transport = new MotifTransport(audio, compiled, {
     onStep: (step) => {
@@ -207,6 +228,12 @@ function init(): void {
       updatePianoRollPlayhead(mainEl, activeStep, compiled.totalSteps);
     },
     onStop: () => {
+      if (geminiUiState.activePreview !== null) {
+        geminiUiState.activePreview = null;
+        coachEl
+          .querySelectorAll<HTMLButtonElement>('[data-gemini-preview]')
+          .forEach((btn) => btn.classList.remove('active'));
+      }
       renderTopControls();
       if (appMode === 'basics') {
         updateBasicsPlayButton(basicsRootEl, false);
@@ -274,8 +301,26 @@ function init(): void {
     return JSON.stringify(normalizedPrev) === JSON.stringify(next);
   }
 
+  function abortGeminiRequest(): void {
+    if (geminiAbort) {
+      geminiAbort.abort();
+      geminiAbort = null;
+    }
+    geminiUiState.loading = false;
+  }
+
+  function syncGeminiSettingsMeta(): void {
+    geminiUiState.hasApiKey = Boolean(geminiSettings.apiKey);
+    geminiUiState.maskedKey = maskApiKey(geminiSettings.apiKey);
+    geminiUiState.selectedModel = geminiSettings.model;
+  }
+
   function loadWorkspaceProject(target: SongProject): void {
     transport.stop();
+    abortGeminiRequest();
+    geminiUiState.error = null;
+    geminiUiState.suggestion = null;
+    geminiUiState.activePreview = null;
     history.clear();
     activeStep = -1;
     project = cloneProject(target);
@@ -364,12 +409,19 @@ function init(): void {
     loadWorkspaceProject(freeProject);
   }
 
-  function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
+  function updateState(
+    next: SongProject,
+    recompileAudioOnly = false,
+    recordHistory = true,
+    skipProgressionUnpack = false,
+    preserveSuggestion = false
+  ): void {
     const prev = project;
     const tabOnly = isTabOnlyChange(prev, next);
 
     // L1 블록의 progressionId 변경 시 L2 코드 슬롯도 동기화한다.
     if (
+      !skipProgressionUnpack &&
       appMode !== 'basics' &&
       (next.blocks.progressionId !== project.blocks.progressionId || next.bars !== project.bars)
     ) {
@@ -384,6 +436,11 @@ function init(): void {
 
     if (recordHistory && !tabOnly && !recompileAudioOnly) {
       history.push(prev);
+    }
+
+    if (!tabOnly && !recompileAudioOnly && !preserveSuggestion) {
+      geminiUiState.suggestion = null;
+      geminiUiState.activePreview = null;
     }
 
     project = resolvedNext;
@@ -830,6 +887,186 @@ function init(): void {
     );
   }
 
+  async function runGeminiCoachRequest(mode: 'explain' | 'request', promptText?: string): Promise<void> {
+    if (!geminiSettings.apiKey.trim()) {
+      if (mode === 'request' && promptText) {
+        geminiUiState.promptDraft = promptText;
+      }
+      geminiUiState.settingsOpen = true;
+      geminiUiState.error = '먼저 Gemini API 키를 입력하고 저장해 주세요.';
+      renderCoachSection();
+      return;
+    }
+
+    const trimmedPrompt = (promptText ?? '').trim();
+    if (mode === 'request') {
+      if (!trimmedPrompt) {
+        geminiUiState.error = '원하는 분위기나 수정 요청을 입력해 주세요.';
+        renderCoachSection();
+        return;
+      }
+      geminiUiState.promptDraft = trimmedPrompt;
+    }
+
+    abortGeminiRequest();
+    const controller = new AbortController();
+    geminiAbort = controller;
+    geminiUiState.loading = true;
+    geminiUiState.error = null;
+    geminiUiState.activePreview = null;
+    renderCoachSection();
+
+    const baseSnapshot = cloneProject(project);
+    const baseCompiled = compileSong(baseSnapshot, chordView);
+    const baseReport = analyzeSong(baseCompiled, baseSnapshot);
+
+    try {
+      const res = await requestGeminiCoach({
+        settings: geminiSettings,
+        mode,
+        userRequest: trimmedPrompt,
+        project: baseSnapshot,
+        compiled: baseCompiled,
+        report: baseReport,
+        signal: controller.signal,
+      });
+
+      if (geminiAbort !== controller) return;
+
+      let patchedProject: SongProject | undefined;
+      let changeDescriptions: string[] = [];
+      if (res.response.patch) {
+        const candidate = applyCoachPatch(baseSnapshot, res.response.patch);
+        changeDescriptions = describeCoachPatch(baseSnapshot, candidate, res.response.patch);
+        if (changeDescriptions.length > 0) {
+          patchedProject = candidate;
+        }
+      }
+
+      geminiUiState.suggestion = {
+        headline: res.response.headline,
+        explanation: res.response.explanation,
+        theoryTip: res.response.theoryTip,
+        patchSummary: res.response.patchSummary,
+        changeDescriptions,
+        warnings: res.warnings,
+        patchedProject,
+        applied: false,
+      };
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      if (geminiAbort !== controller) return;
+      geminiUiState.error = err instanceof Error ? err.message : 'Gemini 요청 중 오류가 발생했다.';
+    } finally {
+      if (geminiAbort === controller) {
+        geminiAbort = null;
+        geminiUiState.loading = false;
+        renderCoachSection();
+      }
+    }
+  }
+
+  function renderCoachSection(report = analyzeSong(compiled, project)): void {
+    renderCoachPanel(coachEl, report, geminiUiState, {
+      onPreviewIssueFix: (issue) => {
+        const previewProj = issue.applyFix(project);
+        const previewCompiled = compileSong(previewProj, chordView);
+        geminiUiState.activePreview = null;
+        transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes, chordView);
+        renderTopControls();
+      },
+      onApplyIssueFix: (issue) => {
+        const fixed = issue.applyFix(project);
+        fixed.activeLayer = 'L3';
+        updateState(fixed);
+      },
+      onToggleGeminiSettings: () => {
+        geminiUiState.settingsOpen = !geminiUiState.settingsOpen;
+        renderCoachSection();
+      },
+      onSaveGeminiSettings: (apiKey, model) => {
+        const nextKey = apiKey.trim() || geminiSettings.apiKey;
+        geminiSettings = {
+          ...geminiSettings,
+          apiKey: nextKey,
+          model,
+        };
+        saveGeminiSettings(geminiSettings);
+        syncGeminiSettingsMeta();
+        geminiUiState.error = null;
+        if (geminiSettings.apiKey) {
+          geminiUiState.settingsOpen = false;
+        }
+        renderCoachSection();
+      },
+      onClearGeminiKey: () => {
+        geminiSettings = { ...geminiSettings, apiKey: '' };
+        saveGeminiSettings(geminiSettings);
+        syncGeminiSettingsMeta();
+        geminiUiState.error = null;
+        renderCoachSection();
+      },
+      onPromptChange: (draft) => {
+        geminiUiState.promptDraft = draft;
+      },
+      onExplainReport: () => {
+        void runGeminiCoachRequest('explain');
+      },
+      onSubmitPrompt: (prompt) => {
+        void runGeminiCoachRequest('request', prompt);
+      },
+      onCancelGemini: () => {
+        abortGeminiRequest();
+        renderCoachSection();
+      },
+      onPreviewGeminiPatch: (after) => {
+        const sug = geminiUiState.suggestion;
+        if (!sug?.patchedProject) return;
+        if (after) {
+          const previewCompiled = compileSong(sug.patchedProject, chordView);
+          geminiUiState.activePreview = 'after';
+          transport.playOncePreview(
+            previewCompiled,
+            sug.patchedProject.bpm,
+            project.melodyInstrument,
+            mutes,
+            chordView
+          );
+        } else {
+          geminiUiState.activePreview = 'before';
+          transport.playOncePreview(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+        }
+        renderTopControls();
+        coachEl.querySelectorAll<HTMLButtonElement>('[data-gemini-preview]').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.geminiPreview === geminiUiState.activePreview);
+        });
+      },
+      onApplyGeminiPatch: () => {
+        const sug = geminiUiState.suggestion;
+        if (!sug?.patchedProject || sug.applied) return;
+        const patched = cloneProject(sug.patchedProject);
+        const chordsChanged = JSON.stringify(patched.chain.chords) !== JSON.stringify(project.chain.chords);
+        const modsChanged = JSON.stringify(patched.chain.modifiers) !== JSON.stringify(project.chain.modifiers);
+        const blocksChanged = JSON.stringify(patched.blocks) !== JSON.stringify(project.blocks);
+        if (chordsChanged || modsChanged) {
+          patched.activeLayer = 'L2';
+        } else if (blocksChanged) {
+          patched.activeLayer = 'L1';
+        } else if (!patched.baked && patched.activeLayer === 'L3') {
+          patched.activeLayer = 'L2';
+        }
+        sug.applied = true;
+        geminiUiState.activePreview = null;
+        updateState(patched, false, true, true, true);
+      },
+      onDismissGeminiSuggestion: () => {
+        geminiUiState.suggestion = null;
+        geminiUiState.activePreview = null;
+        renderCoachSection();
+      },
+    });
+  }
+
   function renderAll(): void {
     const report = analyzeSong(compiled, project);
 
@@ -866,24 +1103,13 @@ function init(): void {
     syncLessonBanner(report);
     renderTopControls();
     renderDynamicParts();
-    renderCoachPanel(coachEl, report, {
-      onPreviewIssueFix: (issue) => {
-        const previewProj = issue.applyFix(project);
-        const previewCompiled = compileSong(previewProj, chordView);
-        transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes, chordView);
-        renderTopControls();
-      },
-      onApplyIssueFix: (issue) => {
-        const fixed = issue.applyFix(project);
-        fixed.activeLayer = 'L3';
-        updateState(fixed);
-      },
-    });
+    renderCoachSection(report);
   }
 
   window.addEventListener('keydown', (e) => {
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === 'INPUT' || tag === 'SELECT') return;
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const key = e.key.toLowerCase();
       if (key === 'z' && !e.shiftKey) {

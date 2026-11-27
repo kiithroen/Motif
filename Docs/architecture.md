@@ -6,11 +6,12 @@
 |---|---|---|---|
 | **기초 입문 (4유닛 20강)** | `BasicLessonDefinition` (`basics.json`) | 4유닛 코스 목차, 완료한 강 랜덤 복습, A/B 소리 비교, 원리 카드, 건반 선택·피아노롤·코드 교체·캐논 편곡 | `실전 미션` 또는 `자유 스케치`로 편곡 내보내기 |
 | **실전 미션 (4유닛 20강)** | `LessonDefinition` (`lessons.json`) | 4유닛 미션 목차, 완료한 미션 랜덤 복습, L1/L2/L3 샌드박스 위 퍼즐 목표·이론 코치 체크리스트 달성 | `자유 스케치`와 진행도 분리 저장 |
-| **자유 스케치 (L1→L2→L3)** | `L1Blocks` → `L2Chain` → `NoteEvent[]` | 블록 조립, 변형 체인 전/후 비교, 2옥타브 피아노롤 직접 편집 | 상단 탭·버튼으로 층 간 왕복 |
+| **자유 스케치 (L1→L2→L3)** | `L1Blocks` → `L2Chain` → `NoteEvent[]` | 블록 조립, 변형 체인 전/후 비교, 2옥타브 피아노롤 직접 편집, Gemini 작곡 코치 패치 비교·적용 | 상단 탭·버튼으로 층 간 왕복 |
 
 ## 모듈 분리
 
-- `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 20강 기초 원리·클래식 해부 커리큘럼(`basics.json`), 20강 실전 미션 커리큘럼(`lessons.json`).
-- `src/core/`: DOM·오디오 비의존 순수 로직(`theory.ts`, `model.ts`, `compiler.ts`, `analyzer.ts`, `history.ts`, `pianoRollOps.ts`, `basics.ts`, `lesson.ts`, `midi.ts`).
+- `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 20강 기초 원리·클래식 해부 커리큘럼(`basics.json`), 20강 실전 미션 커리큘럼(`lessons.json`), Gemini 코치 모델·생성 옵션·허용 범위·빠른 요청 프리셋(`coach.json`).
+- `src/core/`: DOM·오디오·네트워크 비의존 순수 로직(`theory.ts`, `model.ts`, `compiler.ts`, `analyzer.ts`, `coachPatch.ts`, `history.ts`, `pianoRollOps.ts`, `basics.ts`, `lesson.ts`, `midi.ts`).
+- `src/ai/`: 브라우저 `fetch` 기반 Gemini REST API 어댑터 및 로컬 설정 저장(`geminiCoach.ts`).
 - `src/audio/`: `smplr` 기반 실제 악기 샘플 엔진(`SplendidGrandPiano`, 나일론 기타·일렉 핑거 베이스 Soundfont, `LM-2` 드럼 머신)과 클린 폴백 신스·악기별 EQ 버스(`instruments.ts`), 건반 기본·기타 전환형 화음 반주 룩어헤드 스케줄러(`transport.ts`).
-- `src/ui/`: 기초 코스 목차 및 집중 학습 뷰(`basicsView.ts`), 실전 미션 목차 및 배너(`lessonPanel.ts`), 피아노 건반(기본)/기타 운지표 전환형 코드 스트립(`guitarStrip.ts`), L1/L2/L3 및 집중 피아노롤(`layers.ts`), 이론 코치 패널(`coachPanel.ts`).
+- `src/ui/`: 기초 코스 목차 및 집중 학습 뷰(`basicsView.ts`), 실전 미션 목차 및 배너(`lessonPanel.ts`), 피아노 건반(기본)/기타 운지표 전환형 코드 스트립(`guitarStrip.ts`), L1/L2/L3 및 집중 피아노롤(`layers.ts`), 로컬 이론 코치 및 Gemini 작곡 코치 패널(`coachPanel.ts`).

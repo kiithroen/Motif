@@ -709,13 +709,233 @@ button, select, input {
   gap: 6px;
 }
 
-.gemini-slot {
+.gemini-coach-card {
   margin-top: 12px;
   padding: 10px;
-  border-radius: 9px;
-  border: 1px dashed var(--border);
-  font-size: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gemini-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gemini-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.gemini-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.gemini-status.connected {
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--green);
+}
+
+.gemini-status.missing {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--amber);
+}
+
+.gemini-settings {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.gemini-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
   color: var(--muted);
+}
+
+.gemini-field input,
+.gemini-field select,
+.gemini-prompt-row textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.gemini-field input:focus,
+.gemini-field select:focus,
+.gemini-prompt-row textarea:focus {
+  border-color: var(--accent);
+}
+
+.gemini-key-hint,
+.gemini-privacy-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.gemini-key-hint code {
+  color: var(--accent);
+}
+
+.gemini-settings-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.gemini-explain-row {
+  display: flex;
+}
+
+.gemini-explain-row .btn {
+  width: 100%;
+  text-align: center;
+}
+
+.gemini-quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.gemini-prompt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gemini-prompt-row textarea {
+  resize: vertical;
+  min-height: 52px;
+  line-height: 1.4;
+}
+
+.gemini-submit-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gemini-loading {
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.gemini-error {
+  font-size: 12px;
+  color: var(--red);
+  background: rgba(251, 113, 133, 0.12);
+  border: 1px solid rgba(251, 113, 133, 0.4);
+  border-radius: 8px;
+  padding: 8px;
+  line-height: 1.4;
+}
+
+.gemini-result-card {
+  background: var(--panel);
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-left: 3px solid var(--purple);
+  border-radius: 9px;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.gemini-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.gemini-result-desc {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.gemini-tip {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel-alt);
+  border-radius: 6px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+.gemini-patch-box {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gemini-patch-summary {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.gemini-patch-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.35;
+}
+
+.gemini-compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.gemini-applied-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.gemini-warnings {
+  font-size: 11px;
+  color: var(--amber);
+  line-height: 1.35;
 }
 
 .footer-actions {
