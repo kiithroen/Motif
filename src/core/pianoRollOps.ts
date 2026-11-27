@@ -329,6 +329,35 @@ export function duplicatePianoRollNotes(
   return pastePianoRollNotes(notes, clipboard, clipboard.sourceEndStep, totalSteps, bounds, idPrefix);
 }
 
+/** 선택된 음표들의 지속 길이를 상대 스텝만큼 증감하되 최소 1 및 다음 음표 경계 내로 제한한다. */
+export function adjustPianoRollNotesDuration(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>,
+  deltaSteps: number,
+  totalSteps: number
+): NoteEvent[] {
+  const stepDelta = Math.round(deltaSteps);
+  if (totalSteps <= 0) return [];
+  if (selectedIds.size === 0 || stepDelta === 0) {
+    return notes.map((n) => ({ ...n }));
+  }
+
+  let changed = false;
+  const updated = notes.map((n) => {
+    if (!selectedIds.has(n.id)) return { ...n };
+    const maxDur = computeMaxResizeDuration(notes, n.id, totalSteps);
+    const nextDuration = clamp(Math.round(n.duration + stepDelta), 1, maxDur);
+    if (nextDuration !== n.duration) {
+      changed = true;
+      return { ...n, duration: nextDuration, origin: 'user' as const };
+    }
+    return { ...n };
+  });
+
+  if (!changed) return notes.map((n) => ({ ...n }));
+  return normalizeMelodyNotes(updated, totalSteps);
+}
+
 /** 마키 드래그 영역(스텝/음높이 범위)과 겹치는 음표 ID 목록을 반환한다. */
 export function selectNotesInMarquee(
   notes: NoteEvent[],

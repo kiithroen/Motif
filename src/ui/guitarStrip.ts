@@ -133,8 +133,27 @@ export function renderGuitarStrip(
 }
 
 export function updateGuitarStripActiveBar(container: HTMLElement, activeBar: number): void {
+  let activeCard: HTMLElement | null = null;
   container.querySelectorAll<HTMLElement>('.chord-card').forEach((card) => {
     const bar = Number(card.dataset.bar);
-    card.classList.toggle('active', bar === activeBar);
+    const isActive = bar === activeBar;
+    card.classList.toggle('active', isActive);
+    if (isActive) activeCard = card;
   });
+
+  if (!activeCard || container.scrollWidth <= container.clientWidth) return;
+  const card = activeCard as HTMLElement;
+  const left = card.offsetLeft;
+  const right = left + card.offsetWidth;
+  const viewLeft = container.scrollLeft;
+  const viewRight = viewLeft + container.clientWidth;
+
+  if (left < viewLeft || right > viewRight) {
+    const targetLeft = Math.max(0, left - 12);
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+    } else {
+      container.scrollLeft = targetLeft;
+    }
+  }
 }

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Motif 앱 아이콘">
+  <defs>
+    <linearGradient id="motifGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0c111a" />
+  <rect x="44" y="44" width="424" height="424" rx="92" fill="url(#motifGrad)" />
+  <path
+    d="M142 360V152h52l62 114 62-114h52v208h-48V229l-52 96h-28l-52-96v131h-48z"
+    fill="#08111f"
+  />
+</svg>

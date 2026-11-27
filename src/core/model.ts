@@ -155,6 +155,30 @@ export interface LibraryPresets {
   midiMax: number;
 }
 
+export interface PianoRollZoomOption {
+  id: string;
+  labelKo: string;
+  scale: number;
+}
+
+export interface PianoRollPresets {
+  minMidi: number;
+  maxMidi: number;
+  baseStepWidth: number;
+  baseRowHeight: number;
+  mouseDragThresholdPx: number;
+  touchDragThresholdPx: number;
+  desktopHandleMinPx: number;
+  desktopHandleMaxPx: number;
+  desktopHandleRatio: number;
+  touchHandleMinPx: number;
+  touchHandleMaxPx: number;
+  touchHandleRatio: number;
+  zoomLevels: PianoRollZoomOption[];
+  defaultDesktopZoomId: string;
+  defaultTouchZoomId: string;
+}
+
 export interface PresetsData {
   defaults: {
     keyRoot: number;
@@ -185,6 +209,7 @@ export interface PresetsData {
   };
   playback: PlaybackPresets;
   library: LibraryPresets;
+  pianoRoll: PianoRollPresets;
 }
 
 export const PRESETS = presetsRaw as PresetsData;

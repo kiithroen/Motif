@@ -258,5 +258,26 @@
     "bpmMax": 150,
     "midiMin": 24,
     "midiMax": 108
+  },
+  "pianoRoll": {
+    "minMidi": 60,
+    "maxMidi": 84,
+    "baseStepWidth": 20,
+    "baseRowHeight": 20,
+    "mouseDragThresholdPx": 4,
+    "touchDragThresholdPx": 10,
+    "desktopHandleMinPx": 6,
+    "desktopHandleMaxPx": 8,
+    "desktopHandleRatio": 0.35,
+    "touchHandleMinPx": 12,
+    "touchHandleMaxPx": 18,
+    "touchHandleRatio": 0.42,
+    "zoomLevels": [
+      { "id": "fit", "labelKo": "작게", "scale": 0.8 },
+      { "id": "normal", "labelKo": "보통", "scale": 1.0 },
+      { "id": "large", "labelKo": "크게", "scale": 1.35 }
+    ],
+    "defaultDesktopZoomId": "normal",
+    "defaultTouchZoomId": "large"
   }
 }

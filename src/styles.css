@@ -24,17 +24,25 @@ html, body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
 }
 
-button, select, input {
+button, select, input, textarea {
   font: inherit;
   color: inherit;
+  touch-action: manipulation;
+}
+
+input[type='range'] {
+  accent-color: var(--accent);
 }
 
 .app-shell {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 14px 18px 24px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -116,6 +124,18 @@ button, select, input {
   gap: 6px;
 }
 
+.topbar-tools-primary,
+.topbar-tools-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-tools-toggle {
+  display: none;
+}
+
 .topbar-tools .ctrl-group {
   padding: 4px 7px;
   font-size: 12px;
@@ -128,6 +148,18 @@ button, select, input {
 
 .topbar-tools .btn-chip {
   padding: 4px 8px;
+}
+
+.touch-hint {
+  display: none;
+}
+
+.mobile-thumb-dock {
+  display: none;
+}
+
+.mobile-thumb-dock[hidden] {
+  display: none !important;
 }
 
 #btn-metronome.active {
@@ -654,6 +686,7 @@ button, select, input {
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
+  touch-action: none;
 }
 
 .pr-bar-cell {
@@ -834,10 +867,17 @@ button, select, input {
   stroke-dasharray: 4 3;
 }
 
-.pr-duration-group {
+.pr-duration-group,
+.pr-tool-group,
+.pr-zoom-group {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex-wrap: wrap;
+}
+
+.pr-controls-row {
+  gap: 10px;
 }
 
 .pr-key {
@@ -870,11 +910,18 @@ button, select, input {
   flex: 1;
   min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pr-svg {
   display: block;
   cursor: crosshair;
+  touch-action: pan-x pan-y;
+}
+
+.pr-svg.pr-tool-select {
+  touch-action: none;
 }
 
 .pr-svg:focus {
@@ -2304,4 +2351,266 @@ button, select, input {
   flex-wrap: wrap;
   gap: 5px;
   margin-top: 2px;
+}
+
+@media (pointer: coarse) {
+  .kb-hint {
+    display: none;
+  }
+
+  .touch-hint {
+    display: inline;
+  }
+
+  .btn,
+  .tab-pill,
+  .mode-pill,
+  .ctrl-group select {
+    min-height: 36px;
+  }
+
+  .btn-chip {
+    min-height: 34px;
+    padding: 6px 10px;
+  }
+
+  .pr-bar-header {
+    height: 34px;
+  }
+
+  .pr-keys-corner {
+    height: 34px;
+  }
+
+  .pr-bar-loop-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+
+  input[type='range'] {
+    height: 28px;
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #06121f;
+    cursor: pointer;
+  }
+
+  .sl-mix {
+    height: 30px;
+  }
+}
+
+@media (max-width: 1060px) {
+  .unit-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  }
+
+  .chord-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .lesson-body {
+    grid-template-columns: 1fr 270px;
+  }
+
+  .mixer-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-thumb-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 8px;
+    padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    background: rgba(12, 17, 26, 0.94);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border);
+  }
+
+  .mobile-dock-btn {
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 719px) {
+  .lesson-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-shell {
+    padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) calc(82px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    gap: 10px;
+  }
+
+  .topbar {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  .topbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mode-switch {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mode-switch .mode-pill {
+    padding: 7px 4px;
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-tools {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-tools-primary {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .topbar-tools-primary .btn {
+    flex: 1 1 auto;
+    min-height: 38px;
+  }
+
+  .mobile-tools-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .topbar-tools-extra {
+    display: none;
+    width: 100%;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .topbar-tools-extra.open {
+    display: flex;
+  }
+
+  .topbar-tools-extra .ctrl-group {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    justify-content: space-between;
+  }
+
+  .topbar-tools-extra select,
+  .song-slot-select,
+  .song-name-input {
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .chord-strip {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+
+  .chord-card {
+    flex: 0 0 154px;
+    scroll-snap-align: start;
+  }
+
+  .main-panel,
+  .coach-panel,
+  .learn-card,
+  .unit-card,
+  .song-library-bar,
+  .lesson-banner {
+    padding: 10px;
+  }
+
+  .card-grid,
+  .sliders-row,
+  .modifier-list,
+  .demo-grid,
+  .theory-grid,
+  .annotation-grid,
+  .chord-pick-grid,
+  .chord-swap-grid,
+  .song-slot-grid,
+  .mixer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .song-library-left {
+    width: 100%;
+  }
+
+  .song-slot-select,
+  .song-name-input {
+    flex: 1 1 140px;
+    max-width: none;
+    width: auto;
+  }
+
+  .pr-keys-col {
+    width: 58px;
+  }
+
+  .pr-key {
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .pr-selection-bar {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .course-map-hero {
+    padding: 12px;
+  }
+
+  .course-hero-info {
+    min-width: 0;
+  }
 }

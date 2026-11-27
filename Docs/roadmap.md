@@ -14,8 +14,9 @@
 - **L3 비파괴 보호 및 편집 편의성 개선 완료:** L2 마디 코드 변경 시 L3 수동 편집 멜로디(`bakedMelody`) 유지 옵션과 덮어쓰기 초기화, 드래그·리사이즈 중 `getBoundingClientRect()` 재계산 스크롤 보정, 16분(1칸)·점4분(6칸) 음표 길이 옵션, 단순 클릭(선택·미리듣기)과 삭제(더블클릭·우클릭·Delete/Backspace) 분리, 마키 다중 선택·Shift/Ctrl 토글·Ctrl+A/C/X/V/D 복사·붙여넣기·복제·일괄 드래그·Alt+드래그 복사·방향키 미세 이동·옥타브 이동 선택 툴바를 반영했다.
 - **다중 곡 슬롯 및 JSON 백업 완료:** 자유 스케치 프로젝트를 최대 슬롯 한도 내에서 생성·복제·이름 변경·2단계 삭제·드로어 목록 전환으로 관리하고(`src/core/projectLibrary.ts`, `src/ui/songLibraryBar.ts`), 단일 곡(`motif-song`)·전체 라이브러리(`motif-library`)·단일 프로젝트 JSON 내보내기/불러오기 및 기존 단일 프로젝트(`motif_project_v1`) 자동 마이그레이션을 반영했다.
 - **구조·성능 리팩토링 완료:** `src/core/compiler.ts`의 `previewModifierDiff`에 기준 컴파일 재사용 및 bounded 캐싱을 적용해 L2 변형 카드 렌더링과 전/후 비교 미리듣기의 중복 컴파일을 줄였고, `src/main.ts`의 저장소·파일 다운로드(`src/app/storage.ts`), 키보드 단축키(`src/app/shortcuts.ts`), Gemini/로컬 이론 코치 제어(`src/app/coachController.ts`) 책임을 분리했다.
+- **갤럭시 Z 폴드7 모바일 최적화·터치 UX·PWA 완료:** 접힌 커버 화면(`<=600px`)과 펼친 메인 화면(`601px~1060px`) 듀얼 폼팩터 반응형 레이아웃, 접이식 상단 도구 바, 하단 고정 엄지 독(`#mobile-thumb-dock`), 가로 스와이프 코드 스트립 활성 마디 추적, L3 피아노롤 터치 스크롤/탭 분리·`입력/이동`·`범위 선택` 도구 전환·3단계 배율(`작게`/`보통`/`크게`)·터치 정밀 편집(반음·스텝·음표 길이 `adjustPianoRollNotesDuration`) 및 `manifest.webmanifest`·`sw.js` 기반 standalone PWA 설치를 반영했다.
 
 ## 다음 작업
 
-### 모바일·데스크톱 포팅 (예정)
-- 필요 시 Capacitor 기반 Android/데스크톱 패키징을 검토한다.
+### Android 네이티브 패키징 (선택)
+- 필요 시 Capacitor 기반 Android APK 패키징 및 WebView 파일 공유(`.mid`/`.json`) 브릿지를 검토한다.

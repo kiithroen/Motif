@@ -11,6 +11,7 @@ import {
 import {
   type NoteClipboard,
   addPianoRollNote,
+  adjustPianoRollNotesDuration,
   clampGroupDelta,
   computeMaxResizeDuration,
   copyPianoRollNotes,
@@ -71,17 +72,68 @@ function escapeHtml(text: string): string {
     .replaceAll("'", '&#39;');
 }
 
-const PR_MIN_MIDI = 60; // C4
-const PR_MAX_MIDI = 84; // C6
-const ROW_H = 20;
-const STEP_W = 20;
+export type PianoRollToolMode = 'draw' | 'select';
+
+interface PianoRollMetrics {
+  minMidi: number;
+  maxMidi: number;
+  stepW: number;
+  rowH: number;
+  zoomId: string;
+  scale: number;
+  touchSized: boolean;
+}
 
 let containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
+let containerToolModeMap = new WeakMap<HTMLElement, PianoRollToolMode>();
+let containerZoomMap = new WeakMap<HTMLElement, string>();
 const activeKeyHandlers = new Map<HTMLElement, (e: KeyboardEvent) => void>();
 const handledKeyEvents = new WeakSet<KeyboardEvent>();
 let sharedClipboard: NoteClipboard | null = null;
 let nextPasteStep: number | null = null;
 let pasteSeq = 0;
+
+function isCoarsePointer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
+function getToolMode(container: HTMLElement): PianoRollToolMode {
+  return containerToolModeMap.get(container) ?? 'draw';
+}
+
+function getZoomId(container: HTMLElement): string {
+  const stored = containerZoomMap.get(container);
+  if (stored) return stored;
+  return isCoarsePointer()
+    ? PRESETS.pianoRoll.defaultTouchZoomId
+    : PRESETS.pianoRoll.defaultDesktopZoomId;
+}
+
+function resolvePianoRollMetrics(zoomId: string, coarse = isCoarsePointer()): PianoRollMetrics {
+  const cfg = PRESETS.pianoRoll;
+  const matched =
+    cfg.zoomLevels.find((z) => z.id === zoomId) ??
+    cfg.zoomLevels.find((z) => z.id === cfg.defaultDesktopZoomId) ??
+    cfg.zoomLevels[0];
+  const scale = matched?.scale ?? 1;
+  return {
+    minMidi: cfg.minMidi,
+    maxMidi: cfg.maxMidi,
+    stepW: Math.max(8, Math.round(cfg.baseStepWidth * scale)),
+    rowH: Math.max(12, Math.round(cfg.baseRowHeight * scale)),
+    zoomId: matched?.id ?? zoomId,
+    scale,
+    touchSized: coarse || scale > 1,
+  };
+}
+
+function isTouchPointer(e: PointerEvent): boolean {
+  return e.pointerType === 'touch';
+}
 
 function getSelectionSet(container: HTMLElement): Set<string> {
   let set = containerSelectionMap.get(container);
@@ -110,10 +162,12 @@ function detachContainerKeyHandler(container: HTMLElement): void {
   }
 }
 
-/** 피아노롤 다중 선택 상태·공유 클립보드·전역 단축키 리스너를 초기화한다. */
+/** 피아노롤 다중 선택 상태·도구 모드·배율·공유 클립보드·전역 단축키 리스너를 초기화한다. */
 export function clearPianoRollEditState(container?: HTMLElement): void {
   if (container) {
     containerSelectionMap.delete(container);
+    containerToolModeMap.delete(container);
+    containerZoomMap.delete(container);
     detachContainerKeyHandler(container);
     return;
   }
@@ -122,6 +176,8 @@ export function clearPianoRollEditState(container?: HTMLElement): void {
     activeKeyHandlers.delete(el);
   }
   containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
+  containerToolModeMap = new WeakMap<HTMLElement, PianoRollToolMode>();
+  containerZoomMap = new WeakMap<HTMLElement, string>();
   sharedClipboard = null;
   nextPasteStep = null;
 }
@@ -130,13 +186,14 @@ export function computeFollowScrollLeft(
   playheadX: number,
   scrollLeft: number,
   clientWidth: number,
-  scrollWidth: number
+  scrollWidth: number,
+  stepW = PRESETS.pianoRoll.baseStepWidth
 ): number {
   const maxScroll = Math.max(0, scrollWidth - clientWidth);
   if (maxScroll <= 0 || clientWidth <= 0) return scrollLeft;
 
-  const leftMargin = Math.min(STEP_W * 2, Math.floor(clientWidth * 0.1));
-  const rightMargin = Math.min(STEP_W * 4, Math.floor(clientWidth * 0.15));
+  const leftMargin = Math.min(stepW * 2, Math.floor(clientWidth * 0.1));
+  const rightMargin = Math.min(stepW * 4, Math.floor(clientWidth * 0.15));
 
   if (playheadX < scrollLeft || playheadX > scrollLeft + clientWidth - rightMargin) {
     return Math.max(0, Math.min(maxScroll, playheadX - leftMargin));
@@ -151,9 +208,12 @@ export function updatePianoRollPlayhead(container: HTMLElement, activeStep: numb
     cell.classList.toggle('active-bar', Number(cell.dataset.bar) === activeBar);
   });
 
+  const svg = container.querySelector<SVGSVGElement>('.pr-svg');
   const line = container.querySelector<SVGLineElement>('.pr-playhead');
   if (!line) return;
-  const x = visible ? activeStep * STEP_W : 0;
+  const parsedStepW = Number(svg?.dataset.stepW);
+  const stepW = Number.isFinite(parsedStepW) && parsedStepW > 0 ? parsedStepW : PRESETS.pianoRoll.baseStepWidth;
+  const x = visible ? activeStep * stepW : 0;
   line.setAttribute('x1', String(x));
   line.setAttribute('x2', String(x));
   line.setAttribute('visibility', visible ? 'visible' : 'hidden');
@@ -165,7 +225,8 @@ export function updatePianoRollPlayhead(container: HTMLElement, activeStep: numb
         x,
         scrollEl.scrollLeft,
         scrollEl.clientWidth,
-        scrollEl.scrollWidth
+        scrollEl.scrollWidth,
+        stepW
       );
       if (nextScroll !== scrollEl.scrollLeft) {
         scrollEl.scrollLeft = nextScroll;
@@ -195,26 +256,37 @@ export function renderFocusedPianoRoll(
 ): void {
   const prevScrollLeft = container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0;
   const selectedIds = pruneSelectionForMelody(container, compiled);
+  const toolMode = getToolMode(container);
+  const metrics = resolvePianoRollMetrics(getZoomId(container));
   container.innerHTML = renderL3Body(project, compiled, activeStep, options.selectedDuration, {
     showDurationPicker: options.showDurationPicker,
     showUnbake: Boolean(options.showUnbake),
     loopRange: options.loopRange,
     selectedIds,
+    toolMode,
+    metrics,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
     scrollEl.scrollLeft = prevScrollLeft;
   }
-  wireL3Events(container, project, compiled, {
-    selectedDuration: options.selectedDuration,
-    loopRange: options.loopRange,
-    onSelectDuration: options.onSelectDuration,
-    onProjectChange: options.onProjectChange,
-    onAuditionPitch: options.onAuditionPitch,
-    onPreviewModifier: () => {},
-    onSeekBar: options.onSeekBar,
-    onLoopRangeChange: options.onLoopRangeChange,
-  });
+  wireL3Events(
+    container,
+    project,
+    compiled,
+    {
+      selectedDuration: options.selectedDuration,
+      loopRange: options.loopRange,
+      onSelectDuration: options.onSelectDuration,
+      onProjectChange: options.onProjectChange,
+      onAuditionPitch: options.onAuditionPitch,
+      onPreviewModifier: () => {},
+      onSeekBar: options.onSeekBar,
+      onLoopRangeChange: options.onLoopRangeChange,
+    },
+    metrics,
+    () => renderFocusedPianoRoll(container, project, compiled, activeStep, options)
+  );
 }
 
 export function renderLayerEditor(
@@ -270,6 +342,8 @@ export function renderLayerEditor(
   }
 
   const selectedIds = pruneSelectionForMelody(container, compiled);
+  const toolMode = getToolMode(container);
+  const metrics = resolvePianoRollMetrics(getZoomId(container));
   container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration, {
     showDurationPicker: true,
     showUnbake: false,
@@ -277,13 +351,22 @@ export function renderLayerEditor(
     coachCompare: callbacks.coachCompare,
     coachCompareActive: callbacks.coachCompareActive,
     selectedIds,
+    toolMode,
+    metrics,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
     scrollEl.scrollLeft = prevScrollLeft;
   }
   wireTabs(container, project, callbacks);
-  wireL3Events(container, project, compiled, callbacks);
+  wireL3Events(
+    container,
+    project,
+    compiled,
+    callbacks,
+    metrics,
+    () => renderLayerEditor(container, project, compiled, activeStep, callbacks)
+  );
 }
 
 function wireTabs(container: HTMLElement, project: SongProject, callbacks: LayerCallbacks): void {
@@ -638,8 +721,12 @@ function noteRoleColor(role: HarmonicRole): string {
   return '#38bdf8';
 }
 
-function computeHandleWidth(noteWidth: number): number {
-  return Math.min(8, Math.max(6, Math.floor(noteWidth * 0.35)));
+function computeHandleWidth(noteWidth: number, touchSized: boolean): number {
+  const cfg = PRESETS.pianoRoll;
+  const minW = touchSized ? cfg.touchHandleMinPx : cfg.desktopHandleMinPx;
+  const maxW = touchSized ? cfg.touchHandleMaxPx : cfg.desktopHandleMaxPx;
+  const ratio = touchSized ? cfg.touchHandleRatio : cfg.desktopHandleRatio;
+  return Math.min(noteWidth, Math.min(maxW, Math.max(minW, Math.floor(noteWidth * ratio))));
 }
 
 function applyNoteGroupGeometry(
@@ -647,14 +734,15 @@ function applyNoteGroupGeometry(
   step: number,
   midi: number,
   duration: number,
-  role: HarmonicRole
+  role: HarmonicRole,
+  metrics: PianoRollMetrics
 ): void {
-  const rowIdx = PR_MAX_MIDI - midi;
-  const x = step * STEP_W + 1;
-  const y = rowIdx * ROW_H + 2;
-  const w = Math.max(STEP_W - 2, duration * STEP_W - 2);
-  const h = ROW_H - 4;
-  const handleW = computeHandleWidth(w);
+  const rowIdx = metrics.maxMidi - midi;
+  const x = step * metrics.stepW + 1;
+  const y = rowIdx * metrics.rowH + 2;
+  const w = Math.max(metrics.stepW - 2, duration * metrics.stepW - 2);
+  const h = metrics.rowH - 4;
+  const handleW = computeHandleWidth(w, metrics.touchSized);
   const fill = noteRoleColor(role);
 
   const body = group.querySelector<SVGRectElement>('.pr-note-body');
@@ -669,7 +757,7 @@ function applyNoteGroupGeometry(
   const label = group.querySelector<SVGTextElement>('.pr-note-label');
   if (label) {
     label.setAttribute('x', String(x + 5));
-    label.setAttribute('y', String(y + 12));
+    label.setAttribute('y', String(y + Math.round(metrics.rowH * 0.62)));
     label.textContent = duration >= 2 ? koreanNoteName(midi) : '';
   }
 
@@ -683,9 +771,10 @@ function applyNoteGroupGeometry(
 
   const grip = group.querySelector<SVGLineElement>('.pr-note-grip');
   if (grip) {
-    grip.setAttribute('x1', String(x + w - 3.5));
+    const gripX = x + w - Math.max(3.5, Math.min(6, handleW * 0.45));
+    grip.setAttribute('x1', String(gripX));
     grip.setAttribute('y1', String(y + 4));
-    grip.setAttribute('x2', String(x + w - 3.5));
+    grip.setAttribute('x2', String(gripX));
     grip.setAttribute('y2', String(y + h - 4));
   }
 }
@@ -714,13 +803,18 @@ function renderL3Body(
     coachCompare?: CoachVisualDiff | null;
     coachCompareActive?: boolean;
     selectedIds?: ReadonlySet<string>;
+    toolMode?: PianoRollToolMode;
+    metrics?: PianoRollMetrics;
   } = { showDurationPicker: true, showUnbake: false }
 ): string {
-  const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
-  const svgW = compiled.totalSteps * STEP_W;
-  const svgH = totalPitches * ROW_H;
+  const metrics = opts.metrics ?? resolvePianoRollMetrics(PRESETS.pianoRoll.defaultDesktopZoomId, false);
+  const toolMode: PianoRollToolMode = opts.toolMode ?? 'draw';
+  const { minMidi, maxMidi, stepW, rowH, zoomId, touchSized } = metrics;
+  const totalPitches = maxMidi - minMidi + 1;
+  const svgW = compiled.totalSteps * stepW;
+  const svgH = totalPitches * rowH;
   const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
-  const barWidth = 16 * STEP_W;
+  const barWidth = 16 * stepW;
   const chordToneSets = compiled.resolvedChords.map((rc) => new Set(rc.pitchClasses));
   const totalBars = compiled.resolvedChords.length;
   const normalizedLoop = normalizeLoopRange(opts.loopRange, totalBars);
@@ -738,33 +832,33 @@ function renderL3Body(
   let keysHtml = '';
   let gridRows = '';
   let chordHighlights = '';
-  for (let midi = PR_MAX_MIDI; midi >= PR_MIN_MIDI; midi--) {
+  for (let midi = maxMidi; midi >= minMidi; midi--) {
     const pc = wrapPc(midi);
     const white = isWhiteKey(midi);
     const inScale = scalePcs.has(pc);
-    const rowIdx = PR_MAX_MIDI - midi;
-    const y = rowIdx * ROW_H;
+    const rowIdx = maxMidi - midi;
+    const y = rowIdx * rowH;
     keysHtml += `
-      <div class="pr-key ${white ? 'white' : 'black'}${inScale ? ' in-scale' : ''}" data-midi="${midi}" title="클릭해 ${koreanNoteName(midi, true)} 미리듣기">
+      <div class="pr-key ${white ? 'white' : 'black'}${inScale ? ' in-scale' : ''}" data-midi="${midi}" style="height:${rowH}px" title="클릭해 ${koreanNoteName(midi, true)} 미리듣기">
         <span>${koreanNoteName(midi, true)}</span>
         <span>${noteName(midi)}</span>
       </div>
     `;
     const rowFill = inScale ? (white ? 'rgba(56,189,248,0.06)' : 'rgba(56,189,248,0.03)') : 'rgba(0,0,0,0.22)';
-    gridRows += `<rect x="0" y="${y}" width="${svgW}" height="${ROW_H}" fill="${rowFill}" />`;
+    gridRows += `<rect x="0" y="${y}" width="${svgW}" height="${rowH}" fill="${rowFill}" />`;
 
     for (let b = 0; b < compiled.resolvedChords.length; b++) {
       if (chordToneSets[b]?.has(pc)) {
-        chordHighlights += `<rect x="${b * barWidth}" y="${y}" width="${barWidth}" height="${ROW_H}" fill="rgba(52, 211, 153, 0.13)" />`;
+        chordHighlights += `<rect x="${b * barWidth}" y="${y}" width="${barWidth}" height="${rowH}" fill="rgba(52, 211, 153, 0.13)" />`;
       }
     }
 
-    gridRows += `<line x1="0" y1="${y + ROW_H}" x2="${svgW}" y2="${y + ROW_H}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
+    gridRows += `<line x1="0" y1="${y + rowH}" x2="${svgW}" y2="${y + rowH}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
   }
 
   let vLines = '';
   for (let s = 0; s <= compiled.totalSteps; s++) {
-    const x = s * STEP_W;
+    const x = s * stepW;
     const isBar = s % 16 === 0;
     const isBeat = s % 4 === 0;
     const color = isBar ? 'rgba(148,163,184,0.45)' : isBeat ? 'rgba(148,163,184,0.18)' : 'rgba(255,255,255,0.04)';
@@ -821,6 +915,25 @@ function renderL3Body(
       `
     : '';
 
+  const toolButtons = `
+    <div class="pr-tool-group" role="group" aria-label="피아노롤 편집 도구">
+      <button class="btn btn-chip${toolMode === 'draw' ? ' active' : ''}" id="btn-pr-tool-draw" type="button">입력/이동</button>
+      <button class="btn btn-chip${toolMode === 'select' ? ' active' : ''}" id="btn-pr-tool-select" type="button">범위 선택</button>
+    </div>
+  `;
+
+  const zoomButtons = `
+    <div class="pr-zoom-group" role="group" aria-label="피아노롤 확대 배율">
+      <span>배율</span>
+      ${PRESETS.pianoRoll.zoomLevels
+        .map(
+          (z) =>
+            `<button class="btn btn-chip${z.id === zoomId ? ' active' : ''}" data-pr-zoom="${z.id}" type="button">${z.labelKo}</button>`
+        )
+        .join('')}
+    </div>
+  `;
+
   const loopBadgeHtml = normalizedLoop
     ? `
         <span class="pr-loop-badge">
@@ -852,24 +965,27 @@ function renderL3Body(
     }
   }
 
+  const labelFontSize = Math.max(10, Math.round(rowH * 0.5));
+  const labelOffsetY = Math.round(rowH * 0.62);
   let noteRects = '';
   for (const n of compiled.melody) {
-    if (n.midi < PR_MIN_MIDI || n.midi > PR_MAX_MIDI) continue;
-    const rowIdx = PR_MAX_MIDI - n.midi;
-    const x = n.step * STEP_W + 1;
-    const y = rowIdx * ROW_H + 2;
-    const w = Math.max(STEP_W - 2, n.duration * STEP_W - 2);
-    const h = ROW_H - 4;
-    const handleW = computeHandleWidth(w);
+    if (n.midi < minMidi || n.midi > maxMidi) continue;
+    const rowIdx = maxMidi - n.midi;
+    const x = n.step * stepW + 1;
+    const y = rowIdx * rowH + 2;
+    const w = Math.max(stepW - 2, n.duration * stepW - 2);
+    const h = rowH - 4;
+    const handleW = computeHandleWidth(w, touchSized);
+    const gripX = x + w - Math.max(3.5, Math.min(6, handleW * 0.45));
     const fill = noteRoleColor(n.role);
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
     const isSelected = Boolean(opts.selectedIds?.has(n.id));
     noteRects += `
       <g class="pr-note${isSelected ? ' selected' : ''}" data-note-id="${n.id}">
         <rect class="pr-note-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" stroke="#08111f" stroke-width="1"/>
-        <text class="pr-note-label" x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" fill="#06121f" pointer-events="none">${label}</text>
+        <text class="pr-note-label" x="${x + 5}" y="${y + labelOffsetY}" font-size="${labelFontSize}" font-weight="700" fill="#06121f" pointer-events="none">${label}</text>
         <rect class="pr-note-resize" data-note-id="${n.id}" x="${x + w - handleW}" y="${y}" width="${handleW}" height="${h}" rx="2"/>
-        <line class="pr-note-grip" x1="${x + w - 3.5}" y1="${y + 4}" x2="${x + w - 3.5}" y2="${y + h - 4}" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" stroke-linecap="round" pointer-events="none"/>
+        <line class="pr-note-grip" x1="${gripX}" y1="${y + 4}" x2="${gripX}" y2="${y + h - 4}" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" stroke-linecap="round" pointer-events="none"/>
       </g>
     `;
   }
@@ -877,17 +993,17 @@ function renderL3Body(
   let ghostNoteRects = '';
   if (hasCoachDiff && coachCompare) {
     for (const g of coachCompare.ghostNotes) {
-      if (g.midi < PR_MIN_MIDI || g.midi > PR_MAX_MIDI) continue;
-      const rowIdx = PR_MAX_MIDI - g.midi;
-      const x = g.step * STEP_W + 1;
-      const y = rowIdx * ROW_H + 2;
-      const w = Math.max(STEP_W - 2, g.duration * STEP_W - 2);
-      const h = ROW_H - 4;
+      if (g.midi < minMidi || g.midi > maxMidi) continue;
+      const rowIdx = maxMidi - g.midi;
+      const x = g.step * stepW + 1;
+      const y = rowIdx * rowH + 2;
+      const w = Math.max(stepW - 2, g.duration * stepW - 2);
+      const h = rowH - 4;
       const label = g.duration >= 2 ? g.label : '';
       ghostNoteRects += `
         <g class="pr-ghost-note" data-bar="${g.bar}" pointer-events="none">
           <rect class="pr-ghost-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4"/>
-          <text class="pr-ghost-label" x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" pointer-events="none">${escapeHtml(label)}</text>
+          <text class="pr-ghost-label" x="${x + 5}" y="${y + labelOffsetY}" font-size="${labelFontSize}" font-weight="700" pointer-events="none">${escapeHtml(label)}</text>
         </g>
       `;
     }
@@ -896,8 +1012,8 @@ function renderL3Body(
   let loopOverlay = '';
   if (normalizedLoop) {
     const win = loopRangeToStepRange(normalizedLoop, compiled.totalSteps);
-    const startX = win.startStep * STEP_W;
-    const endX = win.endStep * STEP_W;
+    const startX = win.startStep * stepW;
+    const endX = win.endStep * stepW;
     if (startX > 0) {
       loopOverlay += `<rect class="pr-loop-dim" x="0" y="0" width="${startX}" height="${svgH}" pointer-events="none"/>`;
     }
@@ -909,7 +1025,7 @@ function renderL3Body(
   }
 
   const visiblePlayhead = activeStep >= 0 && activeStep < compiled.totalSteps;
-  const playheadX = visiblePlayhead ? activeStep * STEP_W : 0;
+  const playheadX = visiblePlayhead ? activeStep * stepW : 0;
   const playhead = `<line class="pr-playhead" x1="${playheadX}" y1="0" x2="${playheadX}" y2="${svgH}" stroke="#fbbf24" stroke-width="2" visibility="${visiblePlayhead ? 'visible' : 'hidden'}"/>`;
 
   const ghostLegendHtml = hasCoachDiff
@@ -917,14 +1033,22 @@ function renderL3Body(
     : '';
   const selCount = opts.selectedIds?.size ?? 0;
   const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
+  const hasNotes = compiled.melody.length > 0;
   const selectionBarHtml = `
-    <div class="pr-selection-bar" id="pr-selection-bar"${selCount > 0 || hasClipboard ? '' : ' hidden'}>
+    <div class="pr-selection-bar" id="pr-selection-bar"${selCount > 0 || hasClipboard || toolMode === 'select' ? '' : ' hidden'}>
       <span class="pr-selection-count" id="pr-selection-count">선택 ${selCount}개</span>
+      <button class="btn btn-chip" id="btn-pr-select-all" type="button" title="전체 선택 (Ctrl+A)"${!hasNotes ? ' disabled' : ''}>전체</button>
+      <button class="btn btn-chip" id="btn-pr-step-left" type="button" title="한 칸 앞으로 (←)"${selCount === 0 ? ' disabled' : ''}>◀</button>
+      <button class="btn btn-chip" id="btn-pr-step-right" type="button" title="한 칸 뒤로 (→)"${selCount === 0 ? ' disabled' : ''}>▶</button>
+      <button class="btn btn-chip" id="btn-pr-pitch-down" type="button" title="반음 내리기 (↓)"${selCount === 0 ? ' disabled' : ''}>↓반음</button>
+      <button class="btn btn-chip" id="btn-pr-pitch-up" type="button" title="반음 올리기 (↑)"${selCount === 0 ? ' disabled' : ''}>↑반음</button>
+      <button class="btn btn-chip" id="btn-pr-dur-down" type="button" title="음표 길이 줄이기"${selCount === 0 ? ' disabled' : ''}>길이-</button>
+      <button class="btn btn-chip" id="btn-pr-dur-up" type="button" title="음표 길이 늘리기"${selCount === 0 ? ' disabled' : ''}>길이+</button>
+      <button class="btn btn-chip" id="btn-pr-oct-down" type="button" title="1옥타브 내리기 (Shift+↓)"${selCount === 0 ? ' disabled' : ''}>-1옥타브</button>
+      <button class="btn btn-chip" id="btn-pr-oct-up" type="button" title="1옥타브 올리기 (Shift+↑)"${selCount === 0 ? ' disabled' : ''}>+1옥타브</button>
       <button class="btn btn-chip" id="btn-pr-copy" type="button" title="복사 (Ctrl+C)"${selCount === 0 ? ' disabled' : ''}>복사</button>
       <button class="btn btn-chip" id="btn-pr-paste" type="button" title="붙여넣기 (Ctrl+V)"${!hasClipboard ? ' disabled' : ''}>붙여넣기</button>
       <button class="btn btn-chip" id="btn-pr-duplicate" type="button" title="바로 뒤에 복제 (Ctrl+D)"${selCount === 0 ? ' disabled' : ''}>복제</button>
-      <button class="btn btn-chip" id="btn-pr-oct-down" type="button" title="1옥타브 내리기 (Shift+↓)"${selCount === 0 ? ' disabled' : ''}>-1옥타브</button>
-      <button class="btn btn-chip" id="btn-pr-oct-up" type="button" title="1옥타브 올리기 (Shift+↑)"${selCount === 0 ? ' disabled' : ''}>+1옥타브</button>
       <button class="btn btn-chip" id="btn-pr-delete" type="button" title="삭제 (Del)"${selCount === 0 ? ' disabled' : ''}>삭제</button>
       <button class="btn btn-chip" id="btn-pr-clear-sel" type="button" title="선택 해제 (Esc)"${selCount === 0 ? ' disabled' : ''}>해제</button>
     </div>
@@ -939,13 +1063,16 @@ function renderL3Body(
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
           ${ghostLegendHtml}
         </div>
-        <div class="controls-row">
+        <div class="controls-row pr-controls-row">
+          ${toolButtons}
           ${durationButtons}
+          ${zoomButtons}
           ${loopBadgeHtml}
           ${coachBadgeHtml}
         </div>
         ${selectionBarHtml}
-        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 / 드래그: 다중 선택 · Shift+클릭: 선택 추가 · 드래그: 이동 (Alt: 복사) · Ctrl+C/V/X/D · 방향키: 이동</span>
+        <span class="kb-hint">마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 / 드래그: 다중 선택 · Shift+클릭: 선택 추가 · 드래그: 이동 (Alt: 복사) · Ctrl+C/V/X/D · 방향키: 이동</span>
+        <span class="touch-hint">빈 칸 탭: 추가 · 스와이프: 스크롤 · 음표 드래그: 이동 · 더블탭: 삭제 · 범위 선택: 다중 선택</span>
       </div>
       <div class="pr-container">
         <div class="pr-keys-col">
@@ -954,7 +1081,7 @@ function renderL3Body(
         </div>
         <div class="pr-grid-scroll">
           <div class="pr-bar-header" style="width:${svgW}px">${barHeaderCells}</div>
-          <svg class="pr-svg" tabindex="0" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
+          <svg class="pr-svg${toolMode === 'select' ? ' pr-tool-select' : ''}" data-step-w="${stepW}" data-row-h="${rowH}" tabindex="0" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
             ${gridRows}
             ${chordHighlights}
             ${coachBarTints}
@@ -975,16 +1102,64 @@ function wireL3Events(
   container: HTMLElement,
   project: SongProject,
   compiled: CompiledSong,
-  callbacks: LayerCallbacks
+  callbacks: LayerCallbacks,
+  metrics: PianoRollMetrics = resolvePianoRollMetrics(PRESETS.pianoRoll.defaultDesktopZoomId, false),
+  onRerenderView?: () => void
 ): void {
   detachContainerKeyHandler(container);
   const selectedIds = pruneSelectionForMelody(container, compiled);
+  const toolMode = getToolMode(container);
+  const { minMidi, maxMidi, stepW, rowH } = metrics;
+
+  const tryCapturePointer = (target: Element | null, pointerId: number): void => {
+    if (!target || typeof (target as HTMLElement).setPointerCapture !== 'function') return;
+    try {
+      (target as HTMLElement).setPointerCapture(pointerId);
+    } catch {
+      // 합성 포인터 이벤트 등 캡처를 지원하지 않는 환경은 무시한다.
+    }
+  };
+
+  const tryReleasePointer = (target: Element | null, pointerId: number): void => {
+    if (!target || typeof (target as HTMLElement).releasePointerCapture !== 'function') return;
+    try {
+      if (
+        typeof (target as HTMLElement).hasPointerCapture !== 'function' ||
+        (target as HTMLElement).hasPointerCapture(pointerId)
+      ) {
+        (target as HTMLElement).releasePointerCapture(pointerId);
+      }
+    } catch {
+      // 이미 해제된 포인터 캡처는 무시한다.
+    }
+  };
 
   container.querySelector('#btn-unbake')?.addEventListener('click', () => {
     const next = cloneProject(project);
     next.baked = false;
     next.bakedMelody = [];
     callbacks.onProjectChange(next);
+  });
+
+  container.querySelector('#btn-pr-tool-draw')?.addEventListener('click', () => {
+    if (getToolMode(container) === 'draw') return;
+    containerToolModeMap.set(container, 'draw');
+    onRerenderView?.();
+  });
+
+  container.querySelector('#btn-pr-tool-select')?.addEventListener('click', () => {
+    if (getToolMode(container) === 'select') return;
+    containerToolModeMap.set(container, 'select');
+    onRerenderView?.();
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-pr-zoom]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nextZoom = btn.dataset.prZoom;
+      if (!nextZoom || nextZoom === metrics.zoomId) return;
+      containerZoomMap.set(container, nextZoom);
+      onRerenderView?.();
+    });
   });
 
   container.querySelectorAll<HTMLButtonElement>('[data-duration]').forEach((btn) => {
@@ -1123,8 +1298,7 @@ function wireL3Events(
   const svg = container.querySelector<SVGSVGElement>('.pr-svg');
   if (!svg) return;
 
-  const DRAG_THRESHOLD_PX = 4;
-  const bounds = { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI };
+  const bounds = { minMidi, maxMidi };
   let lastClickNoteId: string | null = null;
   let lastClickAt = 0;
   let deletedInUpNoteId: string | null = null;
@@ -1141,9 +1315,10 @@ function wireL3Events(
 
     const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
     const count = selectedIds.size;
+    const hasNotes = compiled.melody.length > 0;
     const bar = container.querySelector<HTMLElement>('#pr-selection-bar');
     if (bar) {
-      bar.hidden = count === 0 && !hasClipboard;
+      bar.hidden = count === 0 && !hasClipboard && toolMode !== 'select';
     }
     const countEl = container.querySelector<HTMLElement>('#pr-selection-count');
     if (countEl) {
@@ -1153,6 +1328,13 @@ function wireL3Events(
       const btn = container.querySelector<HTMLButtonElement>(selector);
       if (btn) btn.disabled = disabled;
     };
+    setDisabled('#btn-pr-select-all', !hasNotes);
+    setDisabled('#btn-pr-step-left', count === 0);
+    setDisabled('#btn-pr-step-right', count === 0);
+    setDisabled('#btn-pr-pitch-down', count === 0);
+    setDisabled('#btn-pr-pitch-up', count === 0);
+    setDisabled('#btn-pr-dur-down', count === 0);
+    setDisabled('#btn-pr-dur-up', count === 0);
     setDisabled('#btn-pr-copy', count === 0);
     setDisabled('#btn-pr-paste', !hasClipboard);
     setDisabled('#btn-pr-duplicate', count === 0);
@@ -1174,6 +1356,14 @@ function wireL3Events(
     next.bakedMelody = nextNotes;
     next.baked = true;
     callbacks.onProjectChange(next);
+  };
+
+  const selectAllNotes = (): void => {
+    selectedIds.clear();
+    for (const n of compiled.melody) {
+      selectedIds.add(n.id);
+    }
+    syncSelectionUi();
   };
 
   const deleteSelected = (): void => {
@@ -1262,8 +1452,31 @@ function wireL3Events(
     commitNotes(moved, selectedIds);
   };
 
+  const adjustSelectedDuration = (deltaSteps: number): void => {
+    if (selectedIds.size === 0) return;
+    const baseNotes = getBaseNotes();
+    const adjusted = adjustPianoRollNotesDuration(
+      baseNotes,
+      selectedIds,
+      deltaSteps,
+      compiled.totalSteps
+    );
+    const unchanged =
+      adjusted.length === baseNotes.length &&
+      adjusted.every((n, idx) => n.duration === baseNotes[idx]?.duration);
+    if (unchanged) return;
+    commitNotes(adjusted, selectedIds);
+  };
+
   syncSelectionUi();
 
+  container.querySelector('#btn-pr-select-all')?.addEventListener('click', () => selectAllNotes());
+  container.querySelector('#btn-pr-step-left')?.addEventListener('click', () => nudgeSelected(-1, 0));
+  container.querySelector('#btn-pr-step-right')?.addEventListener('click', () => nudgeSelected(1, 0));
+  container.querySelector('#btn-pr-pitch-down')?.addEventListener('click', () => nudgeSelected(0, -1));
+  container.querySelector('#btn-pr-pitch-up')?.addEventListener('click', () => nudgeSelected(0, 1));
+  container.querySelector('#btn-pr-dur-down')?.addEventListener('click', () => adjustSelectedDuration(-1));
+  container.querySelector('#btn-pr-dur-up')?.addEventListener('click', () => adjustSelectedDuration(1));
   container.querySelector('#btn-pr-copy')?.addEventListener('click', () => copySelected());
   container.querySelector('#btn-pr-paste')?.addEventListener('click', () => pasteClipboard());
   container.querySelector('#btn-pr-duplicate')?.addEventListener('click', () => duplicateSelected());
@@ -1322,11 +1535,7 @@ function wireL3Events(
       if (lower === 'a') {
         handledKeyEvents.add(e);
         e.preventDefault();
-        selectedIds.clear();
-        for (const n of compiled.melody) {
-          selectedIds.add(n.id);
-        }
-        syncSelectionUi();
+        selectAllNotes();
         return;
       }
       if (lower === 'c' && selectedIds.size > 0) {
@@ -1409,29 +1618,99 @@ function wireL3Events(
     const resizeEl = targetEl?.closest('.pr-note-resize') ?? null;
     const noteGroup = targetEl?.closest<SVGGElement>('.pr-note') ?? null;
     const baseNotes = getBaseNotes();
+    const touchPointer = isTouchPointer(e);
+    const dragThresholdPx = touchPointer
+      ? PRESETS.pianoRoll.touchDragThresholdPx
+      : PRESETS.pianoRoll.mouseDragThresholdPx;
 
-    // 경우 A: 빈 칸 드래그 -> 마키 다중 선택, 빈 칸 클릭 -> 새 음표 추가
+    // 경우 A: 빈 칸 인터랙션 (터치 입력 모드는 네이티브 스크롤 우선, 마우스/선택 모드는 마키 다중 선택)
     if (!noteGroup) {
-      e.preventDefault();
-      svg.focus({ preventScroll: true });
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const startRect = svg.getBoundingClientRect();
-      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+
+      if (toolMode === 'draw' && touchPointer) {
+        const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
+        const startScrollLeft = scrollEl?.scrollLeft ?? 0;
+        const startScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+        let scrolled = false;
+        let cancelled = false;
+
+        const cleanup = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          window.removeEventListener('pointercancel', onCancel);
+        };
+
+        const onMove = (ev: PointerEvent) => {
+          if (scrolled) return;
+          const dist = Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY);
+          const curScrollLeft = scrollEl?.scrollLeft ?? 0;
+          const curScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+          if (
+            dist >= dragThresholdPx ||
+            Math.abs(curScrollLeft - startScrollLeft) >= 4 ||
+            Math.abs(curScrollY - startScrollY) >= 4
+          ) {
+            scrolled = true;
+          }
+        };
+
+        const onCancel = () => {
+          cancelled = true;
+          cleanup();
+        };
+
+        const onUp = () => {
+          cleanup();
+          if (cancelled || scrolled) return;
+          selectedIds.clear();
+          syncSelectionUi();
+
+          const x = startClientX - startRect.left;
+          const y = startClientY - startRect.top;
+          const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / stepW)));
+          const row = Math.floor(y / rowH);
+          const midi = maxMidi - row;
+          if (midi < minMidi || midi > maxMidi) return;
+
+          callbacks.onAuditionPitch(midi);
+          const added = addPianoRollNote(baseNotes, {
+            id: `m_user_${Date.now()}_${step}`,
+            midi,
+            step,
+            duration: callbacks.selectedDuration,
+            totalSteps: compiled.totalSteps,
+            bounds,
+          });
+          commitNotes(added);
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onCancel);
+        return;
+      }
+
+      e.preventDefault();
+      svg.focus({ preventScroll: true });
+      if (touchPointer) tryCapturePointer(svg, e.pointerId);
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey || toolMode === 'select';
       const initialSelection = new Set(selectedIds);
       const marqueeEl = svg.querySelector<SVGRectElement>('.pr-marquee');
-      const totalRows = PR_MAX_MIDI - PR_MIN_MIDI + 1;
+      const totalRows = maxMidi - minMidi + 1;
       let hasMarquee = false;
       let cancelled = false;
       isPointerInteracting = true;
 
       const toSvgCoords = (clientX: number, clientY: number, curRect: DOMRect) => ({
-        x: Math.max(0, Math.min(compiled.totalSteps * STEP_W, clientX - curRect.left)),
-        y: Math.max(0, Math.min(totalRows * ROW_H, clientY - curRect.top)),
+        x: Math.max(0, Math.min(compiled.totalSteps * stepW, clientX - curRect.left)),
+        y: Math.max(0, Math.min(totalRows * rowH, clientY - curRect.top)),
       });
 
       const cleanup = () => {
         isPointerInteracting = false;
+        if (touchPointer) tryReleasePointer(svg, e.pointerId);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onCancel);
@@ -1441,7 +1720,7 @@ function wireL3Events(
 
       const onMove = (ev: PointerEvent) => {
         if (!hasMarquee) {
-          if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < DRAG_THRESHOLD_PX) {
+          if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < dragThresholdPx) {
             return;
           }
           hasMarquee = true;
@@ -1462,20 +1741,20 @@ function wireL3Events(
           marqueeEl.setAttribute('visibility', 'visible');
         }
 
-        const minStep = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x1 / STEP_W)));
+        const minStep = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x1 / stepW)));
         const maxStep = Math.max(
           0,
-          Math.min(compiled.totalSteps - 1, Math.floor(Math.max(x1, x2 - 0.01) / STEP_W))
+          Math.min(compiled.totalSteps - 1, Math.floor(Math.max(x1, x2 - 0.01) / stepW))
         );
-        const hiRow = Math.max(0, Math.min(totalRows - 1, Math.floor(y1 / ROW_H)));
+        const hiRow = Math.max(0, Math.min(totalRows - 1, Math.floor(y1 / rowH)));
         const loRow = Math.max(
           0,
-          Math.min(totalRows - 1, Math.floor(Math.max(y1, y2 - 0.01) / ROW_H))
+          Math.min(totalRows - 1, Math.floor(Math.max(y1, y2 - 0.01) / rowH))
         );
-        const minMidi = PR_MAX_MIDI - loRow;
-        const maxMidi = PR_MAX_MIDI - hiRow;
+        const minHitMidi = maxMidi - loRow;
+        const maxHitMidi = maxMidi - hiRow;
 
-        const hitIds = selectNotesInMarquee(baseNotes, minStep, maxStep, minMidi, maxMidi);
+        const hitIds = selectNotesInMarquee(baseNotes, minStep, maxStep, minHitMidi, maxHitMidi);
         selectedIds.clear();
         if (additive) {
           for (const id of initialSelection) selectedIds.add(id);
@@ -1505,12 +1784,14 @@ function wireL3Events(
         selectedIds.clear();
         syncSelectionUi();
 
+        if (toolMode === 'select') return;
+
         const x = startClientX - startRect.left;
         const y = startClientY - startRect.top;
-        const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / STEP_W)));
-        const row = Math.floor(y / ROW_H);
-        const midi = PR_MAX_MIDI - row;
-        if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+        const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / stepW)));
+        const row = Math.floor(y / rowH);
+        const midi = maxMidi - row;
+        if (midi < minMidi || midi > maxMidi) return;
 
         callbacks.onAuditionPitch(midi);
         const added = addPianoRollNote(baseNotes, {
@@ -1548,6 +1829,7 @@ function wireL3Events(
       const maxDuration = computeMaxResizeDuration(baseNotes, targetNote.id, compiled.totalSteps);
       let curDuration = targetNote.duration;
       isPointerInteracting = true;
+      if (touchPointer) tryCapturePointer(resizeEl, e.pointerId);
 
       noteGroup.classList.add('resizing');
       svg.classList.add('pr-resizing');
@@ -1555,6 +1837,7 @@ function wireL3Events(
 
       const cleanup = () => {
         isPointerInteracting = false;
+        if (touchPointer) tryReleasePointer(resizeEl, e.pointerId);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onCancel);
@@ -1565,12 +1848,12 @@ function wireL3Events(
 
       const onMove = (ev: PointerEvent) => {
         const curRect = svg.getBoundingClientRect();
-        const rawEndStep = Math.round((ev.clientX - curRect.left) / STEP_W);
+        const rawEndStep = Math.round((ev.clientX - curRect.left) / stepW);
         const nextDuration = Math.max(1, Math.min(maxDuration, rawEndStep - targetNote.step));
         if (nextDuration !== curDuration) {
           curDuration = nextDuration;
           const liveRole = computeLiveRole(compiled, project, targetNote.step, targetNote.midi, curDuration);
-          applyNoteGroupGeometry(noteGroup, targetNote.step, targetNote.midi, curDuration, liveRole);
+          applyNoteGroupGeometry(noteGroup, targetNote.step, targetNote.midi, curDuration, liveRole, metrics);
         }
       };
 
@@ -1581,7 +1864,8 @@ function wireL3Events(
           targetNote.step,
           targetNote.midi,
           targetNote.duration,
-          targetNote.role
+          targetNote.role,
+          metrics
         );
       };
 
@@ -1608,10 +1892,10 @@ function wireL3Events(
       return;
     }
 
-    // 경우 C: 음표 본체 드래그 -> 단일/다중 이동(Alt: 복사 이동), Shift/Ctrl+클릭 -> 토글, 클릭 -> 선택/미리듣기, 더블클릭 -> 삭제
+    // 경우 C: 음표 본체 드래그 -> 단일/다중 이동(Alt: 복사 이동), Shift/Ctrl/선택모드 탭 -> 토글, 클릭 -> 선택/미리듣기, 더블클릭 -> 삭제
     const startClientX = e.clientX;
     const startClientY = e.clientY;
-    const toggleModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+    const toggleModifier = e.shiftKey || e.ctrlKey || e.metaKey || toolMode === 'select';
     const dragIds = selectedIds.has(targetNote.id) ? new Set(selectedIds) : new Set([targetNote.id]);
     const dragNotes = compiled.melody.filter((n) => dragIds.has(n.id));
     const dragGroups = new Map<string, SVGGElement>();
@@ -1620,7 +1904,7 @@ function wireL3Events(
       if (g) dragGroups.set(dn.id, g);
     }
 
-    const pointerStartStep = Math.floor((e.clientX - rect.left) / STEP_W);
+    const pointerStartStep = Math.floor((e.clientX - rect.left) / stepW);
     const grabStepOffset = Math.max(
       0,
       Math.min(Math.max(0, targetNote.duration - 1), pointerStartStep - targetNote.step)
@@ -1629,9 +1913,11 @@ function wireL3Events(
     let curDeltaStep = 0;
     let curDeltaMidi = 0;
     isPointerInteracting = true;
+    if (touchPointer) tryCapturePointer(noteGroup, e.pointerId);
 
     const cleanup = () => {
       isPointerInteracting = false;
+      if (touchPointer) tryReleasePointer(noteGroup, e.pointerId);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
@@ -1646,14 +1932,14 @@ function wireL3Events(
       for (const dn of dragNotes) {
         const g = dragGroups.get(dn.id);
         if (g) {
-          applyNoteGroupGeometry(g, dn.step, dn.midi, dn.duration, dn.role);
+          applyNoteGroupGeometry(g, dn.step, dn.midi, dn.duration, dn.role, metrics);
         }
       }
     };
 
     const onMove = (ev: PointerEvent) => {
       if (!hasDragged) {
-        if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < DRAG_THRESHOLD_PX) {
+        if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < dragThresholdPx) {
           return;
         }
         hasDragged = true;
@@ -1670,10 +1956,10 @@ function wireL3Events(
       }
 
       const curRect = svg.getBoundingClientRect();
-      const pointerStep = Math.floor((ev.clientX - curRect.left) / STEP_W);
-      const pointerRow = Math.floor((ev.clientY - curRect.top) / ROW_H);
+      const pointerStep = Math.floor((ev.clientX - curRect.left) / stepW);
+      const pointerRow = Math.floor((ev.clientY - curRect.top) / rowH);
       const targetStep = Math.max(0, Math.min(compiled.totalSteps - 1, pointerStep - grabStepOffset));
-      const targetMidi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, PR_MAX_MIDI - pointerRow));
+      const targetMidi = Math.max(minMidi, Math.min(maxMidi, maxMidi - pointerRow));
 
       const clamped = clampGroupDelta(
         baseNotes,
@@ -1698,7 +1984,7 @@ function wireL3Events(
           const nm = dn.midi + curDeltaMidi;
           const previewDur = Math.max(1, Math.min(dn.duration, compiled.totalSteps - ns));
           const liveRole = computeLiveRole(compiled, project, ns, nm, previewDur);
-          applyNoteGroupGeometry(g, ns, nm, previewDur, liveRole);
+          applyNoteGroupGeometry(g, ns, nm, previewDur, liveRole, metrics);
         }
       }
     };

@@ -480,7 +480,7 @@ export function renderBasicsView(
             </div>
             <div class="controls-row">
               <button class="btn btn-primary btn-play${state.isPlaying ? ' playing' : ''}" id="btn-basics-play" type="button">
-                ${state.isPlaying ? '■ 정지 (Space)' : '▶ 내 곡 들어보기 (Space)'}
+                ${state.isPlaying ? '■ 정지' : '▶ 내 곡 들어보기'}<span class="kb-hint"> (Space)</span>
               </button>
               <button class="btn" id="btn-basics-undo" type="button"${state.canUndo ? '' : ' disabled'}>↩ 되돌리기</button>
               <button class="btn" id="btn-basics-hint" type="button">${state.showHint ? '힌트 숨기기' : '힌트 보기'}</button>
@@ -606,5 +606,5 @@ export function updateBasicsPlayButton(container: HTMLElement, isPlaying: boolea
   const btn = container.querySelector<HTMLButtonElement>('#btn-basics-play');
   if (!btn) return;
   btn.classList.toggle('playing', isPlaying);
-  btn.textContent = isPlaying ? '■ 정지 (Space)' : '▶ 내 곡 들어보기 (Space)';
+  btn.innerHTML = `${isPlaying ? '■ 정지' : '▶ 내 곡 들어보기'}<span class="kb-hint"> (Space)</span>`;
 }

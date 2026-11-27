@@ -46,6 +46,8 @@ function pointerEvent(
   clientY: number,
   options: {
     button?: number;
+    pointerType?: string;
+    pointerId?: number;
     shiftKey?: boolean;
     ctrlKey?: boolean;
     metaKey?: boolean;
@@ -59,6 +61,8 @@ function pointerEvent(
     clientX,
     clientY,
     button: opts.button ?? 0,
+    pointerType: opts.pointerType ?? 'mouse',
+    pointerId: opts.pointerId ?? 1,
     shiftKey: opts.shiftKey ?? false,
     ctrlKey: opts.ctrlKey ?? false,
     metaKey: opts.metaKey ?? false,
@@ -927,5 +931,170 @@ describe('L3 PianoRoll pointer interactions', () => {
     const selBody = container.querySelector<SVGRectElement>('.pr-note.selected .pr-note-body')!;
     selBody.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
     expect(project.bakedMelody.length).toBe(0);
+  });
+
+  it('prioritizes native touch scroll on blank area in draw mode and adds note only on short tap', () => {
+    const project = makeTestProject();
+    const compiled = compileSong(project);
+    const onProjectChange = vi.fn();
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const svg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(svg);
+
+    // 1) 터치 빈 칸 짧은 탭 -> defaultPrevented 는 false(스크롤 차단 안 함)이면서 음표 추가
+    const tapDown = pointerEvent('pointerdown', 100 + 16 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+      pointerType: 'touch',
+    });
+    svg.dispatchEvent(tapDown);
+    expect(tapDown.defaultPrevented).toBe(false);
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 16 * STEP_W + 11, 50 + 12 * ROW_H + 11, {
+        pointerType: 'touch',
+      })
+    );
+    expect(onProjectChange).toHaveBeenCalledTimes(1);
+    const afterTap = onProjectChange.mock.calls[0][0] as SongProject;
+    expect(afterTap.bakedMelody.some((n) => n.step === 16 && n.midi === 72)).toBe(true);
+
+    // 2) 터치 빈 칸 스와이프(임계값 이상 이동) -> 음표가 추가되지 않고 마키도 뜨지 않는다.
+    onProjectChange.mockClear();
+    const swipeThreshold = PRESETS.pianoRoll.touchDragThresholdPx;
+    svg.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 20 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointermove', 100 + 20 * STEP_W + 10 + swipeThreshold + 4, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 20 * STEP_W + 10 + swipeThreshold + 4, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    expect(onProjectChange).not.toHaveBeenCalled();
+
+    // 3) pointercancel 발생 시에도 음표를 추가하지 않는다.
+    svg.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 24 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointercancel', 100 + 24 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 24 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    expect(onProjectChange).not.toHaveBeenCalled();
+  });
+
+  it('supports touch select tool mode, zoom scaling, and precision selection toolbar buttons', () => {
+    let project = makeTestProject();
+    let compiled = compileSong(project);
+    const mountRender = () => {
+      renderLayerEditor(container, project, compiled, -1, {
+        selectedDuration: 2,
+        onSelectDuration: vi.fn(),
+        onProjectChange: (next) => {
+          project = next;
+          compiled = compileSong(project);
+          mountRender();
+        },
+        onAuditionPitch: vi.fn(),
+        onPreviewModifier: vi.fn(),
+      });
+    };
+    mountRender();
+
+    // 배율 'large' 전환 -> PRESETS.pianoRoll 설정에 맞춰 SVG/키보드/플레이헤드 스케일이 바뀐다.
+    const largeZoom = PRESETS.pianoRoll.zoomLevels.find((z) => z.id === 'large')!;
+    const largeStepW = Math.round(PRESETS.pianoRoll.baseStepWidth * largeZoom.scale);
+    const largeRowH = Math.round(PRESETS.pianoRoll.baseRowHeight * largeZoom.scale);
+    container.querySelector<HTMLButtonElement>('[data-pr-zoom="large"]')!.click();
+
+    const zoomedSvg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    expect(zoomedSvg.getAttribute('width')).toBe(String(compiled.totalSteps * largeStepW));
+    expect(container.querySelector<HTMLElement>('.pr-key')?.style.height).toBe(`${largeRowH}px`);
+    updatePianoRollPlayhead(container, 4, compiled.totalSteps);
+    expect(container.querySelector<SVGLineElement>('.pr-playhead')?.getAttribute('x1')).toBe(
+      String(4 * largeStepW)
+    );
+
+    // 다시 보통 배율 복원
+    container.querySelector<HTMLButtonElement>('[data-pr-zoom="normal"]')!.click();
+
+    // '범위 선택' 도구 모드 활성화 -> 선택 바 표시, 빈 칸 탭으로 음표 추가 안 됨, Shift 없이 음표 탭 토글
+    container.querySelector<HTMLButtonElement>('#btn-pr-tool-select')!.click();
+    const selBar = container.querySelector<HTMLElement>('#pr-selection-bar')!;
+    expect(selBar.hidden).toBe(false);
+    expect(container.querySelector('.pr-svg')?.classList.contains('pr-tool-select')).toBe(true);
+
+    const selectSvg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(selectSvg);
+
+    // 선택 모드 빈 칸 탭 -> 음표 추가 안 됨
+    selectSvg.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 20 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 20 * STEP_W + 10, 50 + 12 * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    expect(project.bakedMelody.length).toBe(2);
+
+    // 선택 모드에서 n_1, n_2 차례로 탭 -> Shift 없이 다중 선택된다.
+    const body1 = container.querySelector<SVGRectElement>('.pr-note[data-note-id="n_1"] .pr-note-body')!;
+    body1.dispatchEvent(pointerEvent('pointerdown', 110, 50 + (PR_MAX_MIDI - 72) * ROW_H + 10, { pointerType: 'touch' }));
+    window.dispatchEvent(pointerEvent('pointerup', 110, 50 + (PR_MAX_MIDI - 72) * ROW_H + 10, { pointerType: 'touch' }));
+    const body2 = container.querySelector<SVGRectElement>('.pr-note[data-note-id="n_2"] .pr-note-body')!;
+    body2.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 8 * STEP_W + 10, 50 + (PR_MAX_MIDI - 76) * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 8 * STEP_W + 10, 50 + (PR_MAX_MIDI - 76) * ROW_H + 10, {
+        pointerType: 'touch',
+      })
+    );
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+
+    // 선택 바 터치 정밀 편집 버튼 동작: +1칸, +1반음, 길이+, 길이-, 전체 선택
+    container.querySelector<HTMLButtonElement>('#btn-pr-step-right')!.click();
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')?.step).toBe(1);
+    expect(project.bakedMelody.find((n) => n.id === 'n_2')?.step).toBe(9);
+
+    container.querySelector<HTMLButtonElement>('#btn-pr-pitch-up')!.click();
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')?.midi).toBe(73);
+    expect(project.bakedMelody.find((n) => n.id === 'n_2')?.midi).toBe(77);
+
+    container.querySelector<HTMLButtonElement>('#btn-pr-dur-up')!.click();
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')?.duration).toBe(5);
+
+    container.querySelector<HTMLButtonElement>('#btn-pr-dur-down')!.click();
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')?.duration).toBe(4);
+
+    container.querySelector<HTMLButtonElement>('#btn-pr-clear-sel')!.click();
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(0);
+    container.querySelector<HTMLButtonElement>('#btn-pr-select-all')!.click();
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
   });
 });

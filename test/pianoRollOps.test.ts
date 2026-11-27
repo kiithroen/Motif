@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { NoteEvent } from '../src/core/model';
 import {
   addPianoRollNote,
+  adjustPianoRollNotesDuration,
   clampGroupDelta,
   computeMaxResizeDuration,
   copyPianoRollNotes,
@@ -181,5 +182,26 @@ describe('pianoRollOps', () => {
     expect(selectNotesInMarquee(notes, 3, 9, 64, 67)).toEqual(['n1', 'n2']);
     expect(selectNotesInMarquee(notes, 19, 17, 75, 70)).toEqual(['n3']);
     expect(selectNotesInMarquee(notes, 4, 7, 60, 84)).toEqual([]);
+  });
+
+  it('adjusts selected note durations within [1, nextNoteStep - step] bounds', () => {
+    const notes = sampleNotes();
+    // n1(step 0, dur 4, 다음 음표 step 8) +2 -> dur 6, n2(step 8, dur 4, 다음 음표 step 16) +2 -> dur 6
+    const grown = adjustPianoRollNotesDuration(notes, new Set(['n1', 'n2']), 2, 32);
+    expect(grown.find((n) => n.id === 'n1')).toMatchObject({ duration: 6, origin: 'user' });
+    expect(grown.find((n) => n.id === 'n2')).toMatchObject({ duration: 6, origin: 'user' });
+    expect(grown.find((n) => n.id === 'n3')?.duration).toBe(4);
+
+    // 의도적으로 다음 음표 경계를 초과하는 큰 증가량 요청 시 다음 음표 직전(dur 8)으로 클램프된다.
+    const clampedMax = adjustPianoRollNotesDuration(notes, new Set(['n1']), 20, 32);
+    expect(clampedMax.find((n) => n.id === 'n1')?.duration).toBe(8);
+
+    // 최소 길이 1 미만으로 줄이지 못한다.
+    const clampedMin = adjustPianoRollNotesDuration(notes, new Set(['n1']), -10, 32);
+    expect(clampedMin.find((n) => n.id === 'n1')?.duration).toBe(1);
+
+    // 선택이 비어있거나 0 증감이면 원본 구조를 유지한다.
+    expect(adjustPianoRollNotesDuration(notes, new Set(), 2, 32)).toEqual(notes);
+    expect(adjustPianoRollNotesDuration(notes, new Set(['n1']), 0, 32)).toEqual(notes);
   });
 });

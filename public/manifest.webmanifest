@@ -1,0 +1,32 @@
+{
+  "name": "Motif 작곡 스케치북",
+  "short_name": "Motif",
+  "description": "도레미·기타 코드 감각에서 시작해 L1 블록, L2 변형 체인, L3 피아노롤로 작곡을 배우고 실험하는 웹 스케치북",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c111a",
+  "theme_color": "#0c111a",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -115,6 +115,7 @@ function init(): void {
   let volumes: TrackVolumes = loadTrackVolumes();
   let metronome: MetronomeState = createDefaultMetronomeState();
   let mixerOpen = false;
+  let mobileToolsOpen = false;
   let loopRange: LoopBarRange | null = null;
 
   const audio = new MotifAudioEngine();
@@ -135,6 +136,7 @@ function init(): void {
       if (appMode === 'basics') {
         updateBasicsPlayButton(basicsRootEl, false);
       }
+      updateMobileDockPlayState();
     },
   });
   transport.setTrackVolumes(volumes);
@@ -154,6 +156,7 @@ function init(): void {
           <aside class="coach-panel" id="coach-panel"></aside>
         </main>
       </div>
+      <nav class="mobile-thumb-dock" id="mobile-thumb-dock" aria-label="모바일 빠른 제어 바" hidden></nav>
     </div>
   `;
 
@@ -166,6 +169,7 @@ function init(): void {
   const stripEl = document.getElementById('chord-strip')!;
   const mainEl = document.getElementById('main-panel')!;
   const coachEl = document.getElementById('coach-panel')!;
+  const mobileDockEl = document.getElementById('mobile-thumb-dock')!;
 
   function updateAudioBadge(status: SampleLoadStatus): void {
     const badge = topbarEl.querySelector<HTMLElement>('#audio-status-badge');
@@ -453,6 +457,60 @@ function init(): void {
     }
   }
 
+  function updateMobileDockPlayState(): void {
+    const dockPlayBtn = mobileDockEl.querySelector<HTMLButtonElement>('#dock-play');
+    if (!dockPlayBtn) return;
+    const playing = transport.isPlaying();
+    dockPlayBtn.classList.toggle('playing', playing);
+    dockPlayBtn.textContent = playing ? '■ 정지' : '▶ 재생';
+  }
+
+  function renderMobileThumbDock(report = analyzeSong(compiled, project)): void {
+    const isCourseMap =
+      (appMode === 'basics' && basicsScreen === 'map') ||
+      (appMode === 'lesson' && lessonScreen === 'map');
+    if (isCourseMap) {
+      mobileDockEl.hidden = true;
+      mobileDockEl.innerHTML = '';
+      return;
+    }
+
+    mobileDockEl.hidden = false;
+    const playing = transport.isPlaying();
+    const isBasics = appMode === 'basics';
+    const rightActionHtml = isBasics
+      ? `<button class="btn mobile-dock-btn" id="dock-hint" type="button">${showBasicsHint ? '힌트 닫기' : '힌트'}</button>`
+      : `
+          <button class="btn mobile-dock-btn" id="dock-redo" type="button"${history.canRedo() ? '' : ' disabled'}>↪ 다시</button>
+          <button class="btn mobile-dock-btn mobile-dock-coach" id="dock-coach" type="button">코치 ${report.score}점</button>
+        `;
+
+    mobileDockEl.innerHTML = `
+      <button class="btn btn-primary btn-play mobile-dock-btn${playing ? ' playing' : ''}" id="dock-play" type="button">
+        ${playing ? '■ 정지' : '▶ 재생'}
+      </button>
+      <button class="btn mobile-dock-btn" id="dock-undo" type="button"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
+      ${rightActionHtml}
+    `;
+
+    mobileDockEl.querySelector('#dock-play')?.addEventListener('click', () => {
+      togglePlayback();
+    });
+    mobileDockEl.querySelector('#dock-undo')?.addEventListener('click', () => {
+      performUndo();
+    });
+    mobileDockEl.querySelector('#dock-redo')?.addEventListener('click', () => {
+      performRedo();
+    });
+    mobileDockEl.querySelector('#dock-hint')?.addEventListener('click', () => {
+      showBasicsHint = !showBasicsHint;
+      renderBasicsMode();
+    });
+    mobileDockEl.querySelector('#dock-coach')?.addEventListener('click', () => {
+      coachEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   function renderTopControls(): void {
     const chordSwitchHtml = `
       <div class="chord-view-switch" title="코드 그림 및 화음 반주 악기 전환">
@@ -500,6 +558,7 @@ function init(): void {
           switchMode(btn.dataset.appMode as AppMode);
         });
       });
+      renderMobileThumbDock();
       return;
     }
 
@@ -558,6 +617,8 @@ function init(): void {
       `
       : '';
 
+    const mobileSummaryLabel = `${NOTE_NAMES_SHARP[project.keyRoot]} ${project.mode === 'major' ? '장' : '단'} · ${project.bars}마디 · ${project.bpm}BPM ${mobileToolsOpen ? '▲' : '▼'}`;
+
     topbarEl.innerHTML = `
       <div class="topbar-main">
         <div class="brand">
@@ -570,51 +631,62 @@ function init(): void {
       ${topbarRightHtml}
       </div>
       <div class="controls-row topbar-tools">
-        <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
-          ${transport.isPlaying() ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
-        </button>
-        <div class="ctrl-group">
-          <span>키</span>
-          <select id="sel-key">${keyOpts}</select>
-          <select id="sel-mode">
-            <option value="major"${project.mode === 'major' ? ' selected' : ''}>장조 (밝게)</option>
-            <option value="minor"${project.mode === 'minor' ? ' selected' : ''}>단조 (차분)</option>
-          </select>
+        <div class="controls-row topbar-tools-primary">
+          <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
+            ${transport.isPlaying() ? '■ 정지' : '▶ 재생'}<span class="kb-hint"> (Space)</span>
+          </button>
+          <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
+          <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
+          <button class="btn btn-chip${mixerOpen ? ' active' : ''}" id="btn-mixer-toggle" type="button" title="트랙별 볼륨 믹서 열기/닫기">믹서</button>
+          <button class="btn btn-chip mobile-tools-toggle${mobileToolsOpen ? ' active' : ''}" id="btn-mobile-tools-toggle" type="button" aria-expanded="${mobileToolsOpen ? 'true' : 'false'}">${mobileSummaryLabel}</button>
         </div>
-        <div class="ctrl-group">
-          <span>마디</span>
-          <select id="sel-bars">
-            <option value="4"${project.bars === 4 ? ' selected' : ''}>4마디</option>
-            <option value="8"${project.bars === 8 ? ' selected' : ''}>8마디</option>
-          </select>
+        <div class="controls-row topbar-tools-extra${mobileToolsOpen ? ' open' : ''}">
+          <div class="ctrl-group">
+            <span>키</span>
+            <select id="sel-key">${keyOpts}</select>
+            <select id="sel-mode">
+              <option value="major"${project.mode === 'major' ? ' selected' : ''}>장조 (밝게)</option>
+              <option value="minor"${project.mode === 'minor' ? ' selected' : ''}>단조 (차분)</option>
+            </select>
+          </div>
+          <div class="ctrl-group">
+            <span>마디</span>
+            <select id="sel-bars">
+              <option value="4"${project.bars === 4 ? ' selected' : ''}>4마디</option>
+              <option value="8"${project.bars === 8 ? ' selected' : ''}>8마디</option>
+            </select>
+          </div>
+          <div class="ctrl-group">
+            <span>BPM</span>
+            <strong id="bpm-val">${project.bpm}</strong>
+            <input id="sl-bpm" type="range" min="${PRESETS.library.bpmMin}" max="${PRESETS.library.bpmMax}" step="2" value="${project.bpm}" style="width:60px;" />
+          </div>
+          <div class="ctrl-group">
+            <span>선율 악기</span>
+            <select id="sel-inst">
+              <option value="piano"${project.melodyInstrument === 'piano' ? ' selected' : ''}>그랜드 피아노</option>
+              <option value="guitar"${project.melodyInstrument === 'guitar' ? ' selected' : ''}>나일론 기타</option>
+            </select>
+          </div>
+          <button class="btn btn-chip${mutes.melody ? ' muted' : ''}" data-mute="melody" type="button">멜로디</button>
+          <button class="btn btn-chip${mutes.chords ? ' muted' : ''}" data-mute="chords" type="button">코드</button>
+          <button class="btn btn-chip${mutes.bass ? ' muted' : ''}" data-mute="bass" type="button">베이스</button>
+          <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
+          <button class="btn btn-chip${metronome.enabled ? ' active' : ''}" id="btn-metronome" type="button" title="드럼 음소거 시 자동으로 켜지며 수동으로도 전환할 수 있다">${metronomeLabel}</button>
+          <button class="btn" id="btn-seed" type="button" title="랜덤 초안 다시 뽑기">랜덤 초안</button>
+          <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
         </div>
-        <div class="ctrl-group">
-          <span>BPM</span>
-          <strong id="bpm-val">${project.bpm}</strong>
-          <input id="sl-bpm" type="range" min="${PRESETS.library.bpmMin}" max="${PRESETS.library.bpmMax}" step="2" value="${project.bpm}" style="width:60px;" />
-        </div>
-        <div class="ctrl-group">
-          <span>선율 악기</span>
-          <select id="sel-inst">
-            <option value="piano"${project.melodyInstrument === 'piano' ? ' selected' : ''}>그랜드 피아노</option>
-            <option value="guitar"${project.melodyInstrument === 'guitar' ? ' selected' : ''}>나일론 기타</option>
-          </select>
-        </div>
-        <button class="btn btn-chip${mutes.melody ? ' muted' : ''}" data-mute="melody" type="button">멜로디</button>
-        <button class="btn btn-chip${mutes.chords ? ' muted' : ''}" data-mute="chords" type="button">코드</button>
-        <button class="btn btn-chip${mutes.bass ? ' muted' : ''}" data-mute="bass" type="button">베이스</button>
-        <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
-        <button class="btn btn-chip${metronome.enabled ? ' active' : ''}" id="btn-metronome" type="button" title="드럼 음소거 시 자동으로 켜지며 수동으로도 전환할 수 있다">${metronomeLabel}</button>
-        <button class="btn btn-chip${mixerOpen ? ' active' : ''}" id="btn-mixer-toggle" type="button" title="트랙별 볼륨 믹서 열기/닫기">믹서</button>
-        <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
-        <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
-        <button class="btn" id="btn-seed" type="button" title="랜덤 초안 다시 뽑기">랜덤 초안</button>
-        <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
       ${mixerPanelHtml}
     `;
 
     updateAudioBadge(audio.getSampleStatus());
+    renderMobileThumbDock();
+
+    topbarEl.querySelector('#btn-mobile-tools-toggle')?.addEventListener('click', () => {
+      mobileToolsOpen = !mobileToolsOpen;
+      renderTopControls();
+    });
 
     topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -938,6 +1010,7 @@ function init(): void {
             chordView
           );
           updateBasicsPlayButton(basicsRootEl, true);
+          updateMobileDockPlayState();
         },
         onTogglePlay: togglePlayback,
         onUndo: performUndo,
@@ -970,6 +1043,7 @@ function init(): void {
         onLoopRangeChange: setLoopRange,
       }
     );
+    renderMobileThumbDock(report);
   }
 
   function renderCoachSection(report = analyzeSong(compiled, project)): void {
@@ -979,6 +1053,7 @@ function init(): void {
       coachController.getUiState(),
       coachController.createCallbacks()
     );
+    renderMobileThumbDock(report);
   }
 
   function renderSongLibrarySection(): void {
@@ -1172,6 +1247,10 @@ function init(): void {
   });
 
   renderAll();
+
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+  }
 }
 
 init();
