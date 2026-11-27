@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compileSong } from '../src/core/compiler';
 import { PRESETS, type SongProject, createDefaultProject } from '../src/core/model';
 import {
+  clearPianoRollEditState,
   renderFocusedPianoRoll,
   renderLayerEditor,
   updatePianoRollPlayhead,
@@ -39,13 +40,29 @@ function stubSvgRect(svg: SVGSVGElement): void {
     }) as DOMRect;
 }
 
-function pointerEvent(type: string, clientX: number, clientY: number, button = 0): PointerEvent {
+function pointerEvent(
+  type: string,
+  clientX: number,
+  clientY: number,
+  options: {
+    button?: number;
+    shiftKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    altKey?: boolean;
+  } | number = 0
+): PointerEvent {
+  const opts = typeof options === 'number' ? { button: options } : options;
   return new PointerEvent(type, {
     bubbles: true,
     cancelable: true,
     clientX,
     clientY,
-    button,
+    button: opts.button ?? 0,
+    shiftKey: opts.shiftKey ?? false,
+    ctrlKey: opts.ctrlKey ?? false,
+    metaKey: opts.metaKey ?? false,
+    altKey: opts.altKey ?? false,
   });
 }
 
@@ -53,6 +70,7 @@ describe('L3 PianoRoll pointer interactions', () => {
   let container: HTMLElement;
 
   beforeEach(() => {
+    clearPianoRollEditState();
     document.body.innerHTML = '<div id="mount"></div>';
     container = document.getElementById('mount')!;
   });
@@ -454,6 +472,7 @@ describe('L3 PianoRoll pointer interactions', () => {
     const clickX = 100 + 16 * STEP_W + 5;
     const clickY = 50 + (PR_MAX_MIDI - 79) * ROW_H + 10;
     svg.dispatchEvent(pointerEvent('pointerdown', clickX, clickY));
+    window.dispatchEvent(pointerEvent('pointerup', clickX, clickY));
 
     expect(onAuditionPitch).toHaveBeenCalledWith(79);
     expect(onProjectChange).toHaveBeenCalledTimes(1);
@@ -650,5 +669,263 @@ describe('L3 PianoRoll pointer interactions', () => {
 
     container.querySelector<HTMLButtonElement>('#btn-hide-coach-compare')!.click();
     expect(onDismissCoachCompare).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports marquee multi-selection, Shift+click toggle, Ctrl+A, and Escape clear', () => {
+    const project = makeTestProject();
+    project.bakedMelody.push({
+      id: 'n_3',
+      midi: 79,
+      step: 16,
+      duration: 4,
+      velocity: 0.8,
+      origin: 'user',
+    });
+    const compiled = compileSong(project);
+    const onProjectChange = vi.fn();
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const svg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(svg);
+
+    // 1) 빈 칸에서 드래그해 n_1(step 0, midi 72) 과 n_2(step 8, midi 76) 를 마키 선택한다.
+    const startX = 100 + 5;
+    const startY = 50 + (PR_MAX_MIDI - 77) * ROW_H;
+    const endX = 100 + 10 * STEP_W;
+    const endY = 50 + (PR_MAX_MIDI - 71) * ROW_H;
+    svg.dispatchEvent(pointerEvent('pointerdown', startX, startY));
+    window.dispatchEvent(pointerEvent('pointermove', endX, endY));
+    const marquee = container.querySelector<SVGRectElement>('.pr-marquee')!;
+    expect(marquee.getAttribute('visibility')).toBe('visible');
+    window.dispatchEvent(pointerEvent('pointerup', endX, endY));
+    expect(marquee.getAttribute('visibility')).toBe('hidden');
+    expect(onProjectChange).not.toHaveBeenCalled();
+
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+    expect(container.querySelector('#pr-selection-count')?.textContent).toBe('선택 2개');
+
+    // 2) Shift+클릭으로 n_3 추가 선택 토글 (더블클릭 삭제 없이 선택만 전환)
+    const n3Body = container.querySelector<SVGRectElement>('.pr-note[data-note-id="n_3"] .pr-note-body')!;
+    n3Body.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 16 * STEP_W + 5, 50 + (PR_MAX_MIDI - 79) * ROW_H + 5, {
+        shiftKey: true,
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 16 * STEP_W + 5, 50 + (PR_MAX_MIDI - 79) * ROW_H + 5, {
+        shiftKey: true,
+      })
+    );
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(3);
+
+    // 다시 Shift+클릭으로 n_3 선택 해제
+    n3Body.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 16 * STEP_W + 5, 50 + (PR_MAX_MIDI - 79) * ROW_H + 5, {
+        shiftKey: true,
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 16 * STEP_W + 5, 50 + (PR_MAX_MIDI - 79) * ROW_H + 5, {
+        shiftKey: true,
+      })
+    );
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+
+    // 3) Escape 로 선택 해제, Ctrl+A 로 전체 선택
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(0);
+    expect(container.querySelector<HTMLElement>('#pr-selection-bar')?.hidden).toBe(true);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(3);
+  });
+
+  it('moves multiple selected notes together, preserves selection across rerender, and supports Alt+drag copy', () => {
+    let project = makeTestProject();
+    let compiled = compileSong(project);
+    const onProjectChange = vi.fn((next: SongProject) => {
+      project = next;
+      compiled = compileSong(project);
+      renderLayerEditor(container, project, compiled, -1, {
+        selectedDuration: 2,
+        onSelectDuration: vi.fn(),
+        onProjectChange,
+        onAuditionPitch: vi.fn(),
+        onPreviewModifier: vi.fn(),
+      });
+    });
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const svg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(svg);
+
+    // Ctrl+A 로 n_1, n_2 전체 선택
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+
+    // n_1 본체를 step 0 -> step 4, midi 72 -> midi 74 로 드래그 (n_2 도 함께 +4스텝, +2반음 이동)
+    const body1 = container.querySelector<SVGRectElement>('.pr-note[data-note-id="n_1"] .pr-note-body')!;
+    body1.dispatchEvent(pointerEvent('pointerdown', 110, 50 + (PR_MAX_MIDI - 72) * ROW_H + 10));
+    window.dispatchEvent(
+      pointerEvent('pointermove', 100 + 4 * STEP_W + 10, 50 + (PR_MAX_MIDI - 74) * ROW_H + 10)
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 4 * STEP_W + 10, 50 + (PR_MAX_MIDI - 74) * ROW_H + 10)
+    );
+
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')).toMatchObject({ step: 4, midi: 74 });
+    expect(project.bakedMelody.find((n) => n.id === 'n_2')).toMatchObject({ step: 12, midi: 78 });
+    // 리렌더 후에도 다중 선택 상태가 유지된다.
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+
+    // Alt+드래그로 +16스텝 뒤로 복사 이동
+    const freshSvg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(freshSvg);
+    const movedBody1 = container.querySelector<SVGRectElement>('.pr-note[data-note-id="n_1"] .pr-note-body')!;
+    movedBody1.dispatchEvent(
+      pointerEvent('pointerdown', 100 + 4 * STEP_W + 10, 50 + (PR_MAX_MIDI - 74) * ROW_H + 10, {
+        altKey: true,
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointermove', 100 + 20 * STEP_W + 10, 50 + (PR_MAX_MIDI - 74) * ROW_H + 10, {
+        altKey: true,
+      })
+    );
+    window.dispatchEvent(
+      pointerEvent('pointerup', 100 + 20 * STEP_W + 10, 50 + (PR_MAX_MIDI - 74) * ROW_H + 10, {
+        altKey: true,
+      })
+    );
+
+    expect(project.bakedMelody.length).toBe(4);
+    expect(project.bakedMelody.some((n) => n.step === 20 && n.midi === 74)).toBe(true);
+    expect(project.bakedMelody.some((n) => n.step === 28 && n.midi === 78)).toBe(true);
+  });
+
+  it('handles copy, seek-targeted paste, cut, duplicate, arrow nudge, selection toolbar, and input/hidden guards', () => {
+    let project = makeTestProject();
+    let compiled = compileSong(project);
+    const onSeekBar = vi.fn();
+    const mountRender = () => {
+      renderLayerEditor(container, project, compiled, -1, {
+        selectedDuration: 2,
+        onSelectDuration: vi.fn(),
+        onProjectChange: (next) => {
+          project = next;
+          compiled = compileSong(project);
+          mountRender();
+        },
+        onAuditionPitch: vi.fn(),
+        onPreviewModifier: vi.fn(),
+        onSeekBar,
+      });
+    };
+    mountRender();
+
+    // SVG 포커스 없이도 window 단축키(Ctrl+A, Ctrl+C, 마디 Seek 후 Ctrl+V)가 동작한다.
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+
+    const header = container.querySelector<HTMLElement>('.pr-bar-header')!;
+    header.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1280,
+        bottom: 28,
+        width: 1280,
+        height: 28,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    // 3마디(bar=2, step=32) 클릭 -> 붙여넣기 기준 위치가 32로 설정된다.
+    header.dispatchEvent(pointerEvent('pointerdown', 2 * 320 + 20, 10));
+    window.dispatchEvent(pointerEvent('pointerup', 2 * 320 + 20, 10));
+    expect(onSeekBar).toHaveBeenCalledWith(2);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    expect(project.bakedMelody.length).toBe(4);
+    expect(project.bakedMelody.some((n) => n.step === 32 && n.midi === 72)).toBe(true);
+    expect(project.bakedMelody.some((n) => n.step === 40 && n.midi === 76)).toBe(true);
+    // 붙여넣은 음표 2개가 선택 상태로 전환된다.
+    expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+
+    // 툴바 -1옥타브 버튼 및 Shift+ArrowRight(4스텝 이동) 확인
+    container.querySelector<HTMLButtonElement>('#btn-pr-oct-down')!.click();
+    expect(project.bakedMelody.some((n) => n.step === 32 && n.midi === 60)).toBe(true);
+    expect(project.bakedMelody.some((n) => n.step === 40 && n.midi === 64)).toBe(true);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+    expect(project.bakedMelody.some((n) => n.step === 36 && n.midi === 60)).toBe(true);
+    expect(project.bakedMelody.some((n) => n.step === 44 && n.midi === 64)).toBe(true);
+
+    // Ctrl+D 복제 (48스텝부터 복제)
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    expect(project.bakedMelody.length).toBe(6);
+    expect(project.bakedMelody.some((n) => n.step === 48 && n.midi === 60)).toBe(true);
+
+    // Ctrl+X 잘라내기 -> 방금 복제 선택된 2개 제거 후 다시 4개
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'x', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    expect(project.bakedMelody.length).toBe(4);
+
+    // input 포커스 중이거나 container 가 hidden 일 때는 단축키를 차단한다.
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+    );
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
+    );
+    expect(project.bakedMelody.length).toBe(4);
+
+    container.hidden = true;
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
+    );
+    expect(project.bakedMelody.length).toBe(4);
+
+    // 다시 표시 상태에서 다중 선택된 음표 우클릭 -> 선택 전체 일괄 삭제
+    container.hidden = false;
+    const selBody = container.querySelector<SVGRectElement>('.pr-note.selected .pr-note-body')!;
+    selBody.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
+    expect(project.bakedMelody.length).toBe(0);
   });
 });

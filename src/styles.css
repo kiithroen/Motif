@@ -920,6 +920,36 @@ button, select, input {
   cursor: ew-resize;
 }
 
+.pr-marquee {
+  fill: rgba(56, 189, 248, 0.16);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 2;
+}
+
+.pr-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.pr-selection-bar[hidden] {
+  display: none;
+}
+
+.pr-selection-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 4px;
+}
+
 .coach-score-card {
   display: flex;
   align-items: center;

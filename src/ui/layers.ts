@@ -9,11 +9,18 @@ import {
   cloneProject,
 } from '../core/model';
 import {
+  type NoteClipboard,
   addPianoRollNote,
+  clampGroupDelta,
   computeMaxResizeDuration,
+  copyPianoRollNotes,
   deletePianoRollNote,
-  movePianoRollNote,
+  deletePianoRollNotes,
+  duplicatePianoRollNotes,
+  movePianoRollNotes,
+  pastePianoRollNotes,
   resizePianoRollNote,
+  selectNotesInMarquee,
 } from '../core/pianoRollOps';
 import {
   type LoopBarRange,
@@ -68,6 +75,56 @@ const PR_MIN_MIDI = 60; // C4
 const PR_MAX_MIDI = 84; // C6
 const ROW_H = 20;
 const STEP_W = 20;
+
+let containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
+const activeKeyHandlers = new Map<HTMLElement, (e: KeyboardEvent) => void>();
+const handledKeyEvents = new WeakSet<KeyboardEvent>();
+let sharedClipboard: NoteClipboard | null = null;
+let nextPasteStep: number | null = null;
+let pasteSeq = 0;
+
+function getSelectionSet(container: HTMLElement): Set<string> {
+  let set = containerSelectionMap.get(container);
+  if (!set) {
+    set = new Set<string>();
+    containerSelectionMap.set(container, set);
+  }
+  return set;
+}
+
+function pruneSelectionForMelody(container: HTMLElement, compiled: CompiledSong): Set<string> {
+  const sel = getSelectionSet(container);
+  if (sel.size === 0) return sel;
+  const validIds = new Set(compiled.melody.map((n) => n.id));
+  for (const id of sel) {
+    if (!validIds.has(id)) sel.delete(id);
+  }
+  return sel;
+}
+
+function detachContainerKeyHandler(container: HTMLElement): void {
+  const prev = activeKeyHandlers.get(container);
+  if (prev) {
+    window.removeEventListener('keydown', prev);
+    activeKeyHandlers.delete(container);
+  }
+}
+
+/** 피아노롤 다중 선택 상태·공유 클립보드·전역 단축키 리스너를 초기화한다. */
+export function clearPianoRollEditState(container?: HTMLElement): void {
+  if (container) {
+    containerSelectionMap.delete(container);
+    detachContainerKeyHandler(container);
+    return;
+  }
+  for (const [el, handler] of activeKeyHandlers) {
+    window.removeEventListener('keydown', handler);
+    activeKeyHandlers.delete(el);
+  }
+  containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
+  sharedClipboard = null;
+  nextPasteStep = null;
+}
 
 export function computeFollowScrollLeft(
   playheadX: number,
@@ -137,10 +194,12 @@ export function renderFocusedPianoRoll(
   options: FocusedPianoRollOptions
 ): void {
   const prevScrollLeft = container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0;
+  const selectedIds = pruneSelectionForMelody(container, compiled);
   container.innerHTML = renderL3Body(project, compiled, activeStep, options.selectedDuration, {
     showDurationPicker: options.showDurationPicker,
     showUnbake: Boolean(options.showUnbake),
     loopRange: options.loopRange,
+    selectedIds,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
@@ -191,6 +250,8 @@ export function renderLayerEditor(
   `;
 
   if (layer === 'L1') {
+    containerSelectionMap.delete(container);
+    detachContainerKeyHandler(container);
     container.innerHTML = tabsHtml + renderL1Body(project);
     wireTabs(container, project, callbacks);
     wireL1Events(container, project, callbacks);
@@ -198,6 +259,8 @@ export function renderLayerEditor(
   }
 
   if (layer === 'L2') {
+    containerSelectionMap.delete(container);
+    detachContainerKeyHandler(container);
     const chordView = callbacks.chordView ?? 'piano';
     container.innerHTML =
       tabsHtml + renderL2Body(project, compiled, preserveBakedOnChordChange, chordView);
@@ -206,12 +269,14 @@ export function renderLayerEditor(
     return;
   }
 
+  const selectedIds = pruneSelectionForMelody(container, compiled);
   container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration, {
     showDurationPicker: true,
     showUnbake: false,
     loopRange: callbacks.loopRange,
     coachCompare: callbacks.coachCompare,
     coachCompareActive: callbacks.coachCompareActive,
+    selectedIds,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
@@ -648,6 +713,7 @@ function renderL3Body(
     loopRange?: LoopBarRange | null;
     coachCompare?: CoachVisualDiff | null;
     coachCompareActive?: boolean;
+    selectedIds?: ReadonlySet<string>;
   } = { showDurationPicker: true, showUnbake: false }
 ): string {
   const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
@@ -797,8 +863,9 @@ function renderL3Body(
     const handleW = computeHandleWidth(w);
     const fill = noteRoleColor(n.role);
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
+    const isSelected = Boolean(opts.selectedIds?.has(n.id));
     noteRects += `
-      <g class="pr-note" data-note-id="${n.id}">
+      <g class="pr-note${isSelected ? ' selected' : ''}" data-note-id="${n.id}">
         <rect class="pr-note-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" stroke="#08111f" stroke-width="1"/>
         <text class="pr-note-label" x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" fill="#06121f" pointer-events="none">${label}</text>
         <rect class="pr-note-resize" data-note-id="${n.id}" x="${x + w - handleW}" y="${y}" width="${handleW}" height="${h}" rx="2"/>
@@ -848,6 +915,20 @@ function renderL3Body(
   const ghostLegendHtml = hasCoachDiff
     ? `<span class="legend-item"><span class="swatch swatch-ghost"></span>튜터 예시 (고스트)</span>`
     : '';
+  const selCount = opts.selectedIds?.size ?? 0;
+  const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
+  const selectionBarHtml = `
+    <div class="pr-selection-bar" id="pr-selection-bar"${selCount > 0 || hasClipboard ? '' : ' hidden'}>
+      <span class="pr-selection-count" id="pr-selection-count">선택 ${selCount}개</span>
+      <button class="btn btn-chip" id="btn-pr-copy" type="button" title="복사 (Ctrl+C)"${selCount === 0 ? ' disabled' : ''}>복사</button>
+      <button class="btn btn-chip" id="btn-pr-paste" type="button" title="붙여넣기 (Ctrl+V)"${!hasClipboard ? ' disabled' : ''}>붙여넣기</button>
+      <button class="btn btn-chip" id="btn-pr-duplicate" type="button" title="바로 뒤에 복제 (Ctrl+D)"${selCount === 0 ? ' disabled' : ''}>복제</button>
+      <button class="btn btn-chip" id="btn-pr-oct-down" type="button" title="1옥타브 내리기 (Shift+↓)"${selCount === 0 ? ' disabled' : ''}>-1옥타브</button>
+      <button class="btn btn-chip" id="btn-pr-oct-up" type="button" title="1옥타브 올리기 (Shift+↑)"${selCount === 0 ? ' disabled' : ''}>+1옥타브</button>
+      <button class="btn btn-chip" id="btn-pr-delete" type="button" title="삭제 (Del)"${selCount === 0 ? ' disabled' : ''}>삭제</button>
+      <button class="btn btn-chip" id="btn-pr-clear-sel" type="button" title="선택 해제 (Esc)"${selCount === 0 ? ' disabled' : ''}>해제</button>
+    </div>
+  `;
 
   return `
     <div class="pianoroll-wrap${hasCoachDiff && opts.coachCompareActive ? ' coach-comparing' : ''}">
@@ -863,7 +944,8 @@ function renderL3Body(
           ${loopBadgeHtml}
           ${coachBadgeHtml}
         </div>
-        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸: 추가 · 클릭: 미리듣기 · 드래그: 이동 · 더블/우클릭·Del: 삭제 · PC 건반(A~K)</span>
+        ${selectionBarHtml}
+        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 / 드래그: 다중 선택 · Shift+클릭: 선택 추가 · 드래그: 이동 (Alt: 복사) · Ctrl+C/V/X/D · 방향키: 이동</span>
       </div>
       <div class="pr-container">
         <div class="pr-keys-col">
@@ -880,6 +962,7 @@ function renderL3Body(
             ${noteRects}
             ${ghostNoteRects}
             ${loopOverlay}
+            <rect class="pr-marquee" visibility="hidden" pointer-events="none"/>
             ${playhead}
           </svg>
         </div>
@@ -894,6 +977,9 @@ function wireL3Events(
   compiled: CompiledSong,
   callbacks: LayerCallbacks
 ): void {
+  detachContainerKeyHandler(container);
+  const selectedIds = pruneSelectionForMelody(container, compiled);
+
   container.querySelector('#btn-unbake')?.addEventListener('click', () => {
     const next = cloneProject(project);
     next.baked = false;
@@ -1023,6 +1109,7 @@ function wireL3Events(
           callbacks.onLoopRangeChange?.(nextRange);
           return;
         }
+        nextPasteStep = anchorBar * 16;
         callbacks.onSeekBar?.(anchorBar);
       };
 
@@ -1037,27 +1124,156 @@ function wireL3Events(
   if (!svg) return;
 
   const DRAG_THRESHOLD_PX = 4;
-  let selectedNoteId: string | null = null;
+  const bounds = { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI };
   let lastClickNoteId: string | null = null;
   let lastClickAt = 0;
   let deletedInUpNoteId: string | null = null;
+  let isPointerInteracting = false;
 
-  const selectNote = (id: string | null): void => {
-    selectedNoteId = id;
+  const getBaseNotes = (): NoteEvent[] =>
+    compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+
+  const syncSelectionUi = (): void => {
     svg.querySelectorAll<SVGGElement>('.pr-note').forEach((el) => {
-      el.classList.toggle('selected', id !== null && el.dataset.noteId === id);
+      const id = el.dataset.noteId;
+      el.classList.toggle('selected', Boolean(id && selectedIds.has(id)));
     });
+
+    const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
+    const count = selectedIds.size;
+    const bar = container.querySelector<HTMLElement>('#pr-selection-bar');
+    if (bar) {
+      bar.hidden = count === 0 && !hasClipboard;
+    }
+    const countEl = container.querySelector<HTMLElement>('#pr-selection-count');
+    if (countEl) {
+      countEl.textContent = `선택 ${count}개`;
+    }
+    const setDisabled = (selector: string, disabled: boolean) => {
+      const btn = container.querySelector<HTMLButtonElement>(selector);
+      if (btn) btn.disabled = disabled;
+    };
+    setDisabled('#btn-pr-copy', count === 0);
+    setDisabled('#btn-pr-paste', !hasClipboard);
+    setDisabled('#btn-pr-duplicate', count === 0);
+    setDisabled('#btn-pr-oct-down', count === 0);
+    setDisabled('#btn-pr-oct-up', count === 0);
+    setDisabled('#btn-pr-delete', count === 0);
+    setDisabled('#btn-pr-clear-sel', count === 0);
   };
 
-  const deleteNoteById = (noteId: string): void => {
-    if (!compiled.melody.some((n) => n.id === noteId)) return;
-    const baseNotes: NoteEvent[] = compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+  const commitNotes = (nextNotes: NoteEvent[], nextSelection?: Iterable<string>): void => {
+    if (nextSelection && nextSelection !== selectedIds) {
+      const nextList = Array.from(nextSelection);
+      selectedIds.clear();
+      for (const id of nextList) {
+        selectedIds.add(id);
+      }
+    }
     const next = cloneProject(project);
-    next.bakedMelody = deletePianoRollNote(baseNotes, noteId);
+    next.bakedMelody = nextNotes;
     next.baked = true;
-    if (selectedNoteId === noteId) selectedNoteId = null;
     callbacks.onProjectChange(next);
   };
+
+  const deleteSelected = (): void => {
+    if (selectedIds.size === 0) return;
+    const targetIds = new Set(selectedIds);
+    selectedIds.clear();
+    commitNotes(deletePianoRollNotes(getBaseNotes(), targetIds));
+  };
+
+  const copySelected = (): NoteClipboard | null => {
+    const clip = copyPianoRollNotes(getBaseNotes(), selectedIds);
+    if (!clip) return null;
+    sharedClipboard = clip;
+    nextPasteStep = clip.sourceEndStep < compiled.totalSteps ? clip.sourceEndStep : 0;
+    syncSelectionUi();
+    return clip;
+  };
+
+  const cutSelected = (): void => {
+    const clip = copySelected();
+    if (!clip) return;
+    deleteSelected();
+  };
+
+  const pasteClipboard = (): void => {
+    if (!sharedClipboard) return;
+    const targetStep =
+      nextPasteStep !== null && nextPasteStep >= 0 && nextPasteStep < compiled.totalSteps
+        ? nextPasteStep
+        : 0;
+    const prefix = `m_paste_${Date.now()}_${++pasteSeq}`;
+    const res = pastePianoRollNotes(
+      getBaseNotes(),
+      sharedClipboard,
+      targetStep,
+      compiled.totalSteps,
+      bounds,
+      prefix
+    );
+    if (res.pastedIds.length === 0) return;
+    nextPasteStep = res.endStep < compiled.totalSteps ? res.endStep : 0;
+    commitNotes(res.notes, res.pastedIds);
+  };
+
+  const duplicateSelected = (): void => {
+    if (selectedIds.size === 0) return;
+    const prefix = `m_dup_${Date.now()}_${++pasteSeq}`;
+    const res = duplicatePianoRollNotes(
+      getBaseNotes(),
+      selectedIds,
+      compiled.totalSteps,
+      bounds,
+      prefix
+    );
+    if (res.pastedIds.length === 0) return;
+    nextPasteStep = res.endStep < compiled.totalSteps ? res.endStep : 0;
+    commitNotes(res.notes, res.pastedIds);
+  };
+
+  const nudgeSelected = (deltaStep: number, deltaMidi: number): void => {
+    if (selectedIds.size === 0) return;
+    const baseNotes = getBaseNotes();
+    const clamped = clampGroupDelta(
+      baseNotes,
+      selectedIds,
+      deltaStep,
+      deltaMidi,
+      compiled.totalSteps,
+      bounds
+    );
+    if (clamped.deltaStep === 0 && clamped.deltaMidi === 0) return;
+    if (clamped.deltaMidi !== 0) {
+      const anchor = baseNotes.find((n) => selectedIds.has(n.id));
+      if (anchor) {
+        callbacks.onAuditionPitch(anchor.midi + clamped.deltaMidi);
+      }
+    }
+    const moved = movePianoRollNotes(
+      baseNotes,
+      selectedIds,
+      clamped.deltaStep,
+      clamped.deltaMidi,
+      compiled.totalSteps,
+      bounds
+    );
+    commitNotes(moved, selectedIds);
+  };
+
+  syncSelectionUi();
+
+  container.querySelector('#btn-pr-copy')?.addEventListener('click', () => copySelected());
+  container.querySelector('#btn-pr-paste')?.addEventListener('click', () => pasteClipboard());
+  container.querySelector('#btn-pr-duplicate')?.addEventListener('click', () => duplicateSelected());
+  container.querySelector('#btn-pr-oct-down')?.addEventListener('click', () => nudgeSelected(0, -12));
+  container.querySelector('#btn-pr-oct-up')?.addEventListener('click', () => nudgeSelected(0, 12));
+  container.querySelector('#btn-pr-delete')?.addEventListener('click', () => deleteSelected());
+  container.querySelector('#btn-pr-clear-sel')?.addEventListener('click', () => {
+    selectedIds.clear();
+    syncSelectionUi();
+  });
 
   svg.addEventListener('dblclick', (e) => {
     const targetEl = e.target as Element | null;
@@ -1069,7 +1285,9 @@ function wireL3Events(
       deletedInUpNoteId = null;
       return;
     }
-    deleteNoteById(noteId);
+    if (!compiled.melody.some((n) => n.id === noteId)) return;
+    selectedIds.delete(noteId);
+    commitNotes(deletePianoRollNote(getBaseNotes(), noteId));
   });
 
   svg.addEventListener('contextmenu', (e) => {
@@ -1078,15 +1296,111 @@ function wireL3Events(
     const noteId = noteGroup?.getAttribute('data-note-id');
     if (!noteId) return;
     e.preventDefault();
-    deleteNoteById(noteId);
+    if (selectedIds.size > 1 && selectedIds.has(noteId)) {
+      deleteSelected();
+      return;
+    }
+    if (!compiled.melody.some((n) => n.id === noteId)) return;
+    selectedIds.delete(noteId);
+    commitNotes(deletePianoRollNote(getBaseNotes(), noteId));
   });
 
-  svg.addEventListener('keydown', (e) => {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNoteId) {
-      e.preventDefault();
-      deleteNoteById(selectedNoteId);
+  const handleKeyDown = (e: KeyboardEvent): void => {
+    if (handledKeyEvents.has(e)) return;
+    if (!svg.isConnected || svg.closest('[hidden]')) return;
+    const targetEl = e.target as HTMLElement | null;
+    const tag = targetEl?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || targetEl?.isContentEditable) {
+      return;
     }
-  });
+    if (isPointerInteracting) return;
+
+    const mod = e.ctrlKey || e.metaKey;
+    const lower = e.key.toLowerCase();
+
+    if (mod && !e.altKey) {
+      if (lower === 'a') {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        selectedIds.clear();
+        for (const n of compiled.melody) {
+          selectedIds.add(n.id);
+        }
+        syncSelectionUi();
+        return;
+      }
+      if (lower === 'c' && selectedIds.size > 0) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        copySelected();
+        return;
+      }
+      if (lower === 'x' && selectedIds.size > 0) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        cutSelected();
+        return;
+      }
+      if (lower === 'v' && sharedClipboard) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        pasteClipboard();
+        return;
+      }
+      if (lower === 'd' && selectedIds.size > 0) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
+    }
+
+    if (!mod && !e.altKey) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        deleteSelected();
+        return;
+      }
+      if (e.key === 'Escape' && selectedIds.size > 0) {
+        handledKeyEvents.add(e);
+        e.preventDefault();
+        selectedIds.clear();
+        syncSelectionUi();
+        return;
+      }
+      if (selectedIds.size > 0) {
+        if (e.key === 'ArrowUp') {
+          handledKeyEvents.add(e);
+          e.preventDefault();
+          nudgeSelected(0, e.shiftKey ? 12 : 1);
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          handledKeyEvents.add(e);
+          e.preventDefault();
+          nudgeSelected(0, e.shiftKey ? -12 : -1);
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          handledKeyEvents.add(e);
+          e.preventDefault();
+          nudgeSelected(e.shiftKey ? -4 : -1, 0);
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          handledKeyEvents.add(e);
+          e.preventDefault();
+          nudgeSelected(e.shiftKey ? 4 : 1, 0);
+          return;
+        }
+      }
+    }
+  };
+
+  svg.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keydown', handleKeyDown);
+  activeKeyHandlers.set(container, handleKeyDown);
 
   svg.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -1094,32 +1408,126 @@ function wireL3Events(
     const targetEl = e.target as Element | null;
     const resizeEl = targetEl?.closest('.pr-note-resize') ?? null;
     const noteGroup = targetEl?.closest<SVGGElement>('.pr-note') ?? null;
-    const baseNotes: NoteEvent[] = compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+    const baseNotes = getBaseNotes();
 
-    // 경우 A: 빈 칸 클릭 -> 새 음표 추가
+    // 경우 A: 빈 칸 드래그 -> 마키 다중 선택, 빈 칸 클릭 -> 새 음표 추가
     if (!noteGroup) {
-      selectNote(null);
+      e.preventDefault();
       svg.focus({ preventScroll: true });
-      const rect = svg.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / STEP_W)));
-      const row = Math.floor(y / ROW_H);
-      const midi = PR_MAX_MIDI - row;
-      if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      const startRect = svg.getBoundingClientRect();
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+      const initialSelection = new Set(selectedIds);
+      const marqueeEl = svg.querySelector<SVGRectElement>('.pr-marquee');
+      const totalRows = PR_MAX_MIDI - PR_MIN_MIDI + 1;
+      let hasMarquee = false;
+      let cancelled = false;
+      isPointerInteracting = true;
 
-      callbacks.onAuditionPitch(midi);
-      const next = cloneProject(project);
-      next.bakedMelody = addPianoRollNote(baseNotes, {
-        id: `m_user_${Date.now()}_${step}`,
-        midi,
-        step,
-        duration: callbacks.selectedDuration,
-        totalSteps: compiled.totalSteps,
-        bounds: { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI },
+      const toSvgCoords = (clientX: number, clientY: number, curRect: DOMRect) => ({
+        x: Math.max(0, Math.min(compiled.totalSteps * STEP_W, clientX - curRect.left)),
+        y: Math.max(0, Math.min(totalRows * ROW_H, clientY - curRect.top)),
       });
-      next.baked = true;
-      callbacks.onProjectChange(next);
+
+      const cleanup = () => {
+        isPointerInteracting = false;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onMarqueeKeyDown);
+        if (marqueeEl) marqueeEl.setAttribute('visibility', 'hidden');
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        if (!hasMarquee) {
+          if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < DRAG_THRESHOLD_PX) {
+            return;
+          }
+          hasMarquee = true;
+        }
+        const curRect = svg.getBoundingClientRect();
+        const p1 = toSvgCoords(startClientX, startClientY, curRect);
+        const p2 = toSvgCoords(ev.clientX, ev.clientY, curRect);
+        const x1 = Math.min(p1.x, p2.x);
+        const x2 = Math.max(p1.x, p2.x);
+        const y1 = Math.min(p1.y, p2.y);
+        const y2 = Math.max(p1.y, p2.y);
+
+        if (marqueeEl) {
+          marqueeEl.setAttribute('x', String(x1));
+          marqueeEl.setAttribute('y', String(y1));
+          marqueeEl.setAttribute('width', String(Math.max(1, x2 - x1)));
+          marqueeEl.setAttribute('height', String(Math.max(1, y2 - y1)));
+          marqueeEl.setAttribute('visibility', 'visible');
+        }
+
+        const minStep = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x1 / STEP_W)));
+        const maxStep = Math.max(
+          0,
+          Math.min(compiled.totalSteps - 1, Math.floor(Math.max(x1, x2 - 0.01) / STEP_W))
+        );
+        const hiRow = Math.max(0, Math.min(totalRows - 1, Math.floor(y1 / ROW_H)));
+        const loRow = Math.max(
+          0,
+          Math.min(totalRows - 1, Math.floor(Math.max(y1, y2 - 0.01) / ROW_H))
+        );
+        const minMidi = PR_MAX_MIDI - loRow;
+        const maxMidi = PR_MAX_MIDI - hiRow;
+
+        const hitIds = selectNotesInMarquee(baseNotes, minStep, maxStep, minMidi, maxMidi);
+        selectedIds.clear();
+        if (additive) {
+          for (const id of initialSelection) selectedIds.add(id);
+        }
+        for (const id of hitIds) selectedIds.add(id);
+        syncSelectionUi();
+      };
+
+      const onCancel = () => {
+        cancelled = true;
+        cleanup();
+        selectedIds.clear();
+        for (const id of initialSelection) selectedIds.add(id);
+        syncSelectionUi();
+      };
+
+      const onMarqueeKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          onCancel();
+        }
+      };
+
+      const onUp = () => {
+        cleanup();
+        if (cancelled || hasMarquee) return;
+        selectedIds.clear();
+        syncSelectionUi();
+
+        const x = startClientX - startRect.left;
+        const y = startClientY - startRect.top;
+        const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / STEP_W)));
+        const row = Math.floor(y / ROW_H);
+        const midi = PR_MAX_MIDI - row;
+        if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+
+        callbacks.onAuditionPitch(midi);
+        const added = addPianoRollNote(baseNotes, {
+          id: `m_user_${Date.now()}_${step}`,
+          midi,
+          step,
+          duration: callbacks.selectedDuration,
+          totalSteps: compiled.totalSteps,
+          bounds,
+        });
+        commitNotes(added);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onMarqueeKeyDown);
       return;
     }
 
@@ -1130,21 +1538,23 @@ function wireL3Events(
     e.preventDefault();
     const rect = svg.getBoundingClientRect();
     const playheadEl = svg.querySelector('.pr-playhead');
-    const raiseNoteOrder = () => {
-      if (playheadEl) svg.insertBefore(noteGroup, playheadEl);
-      else svg.appendChild(noteGroup);
+    const raiseNoteOrder = (el: SVGGElement) => {
+      if (playheadEl) svg.insertBefore(el, playheadEl);
+      else svg.appendChild(el);
     };
 
     // 경우 B: 오른쪽 끝 핸들 드래그 -> 길이 조절
     if (resizeEl) {
       const maxDuration = computeMaxResizeDuration(baseNotes, targetNote.id, compiled.totalSteps);
       let curDuration = targetNote.duration;
+      isPointerInteracting = true;
 
       noteGroup.classList.add('resizing');
       svg.classList.add('pr-resizing');
-      raiseNoteOrder();
+      raiseNoteOrder(noteGroup);
 
       const cleanup = () => {
+        isPointerInteracting = false;
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onCancel);
@@ -1198,25 +1608,47 @@ function wireL3Events(
       return;
     }
 
-    // 경우 C: 음표 본체 드래그 -> 음높이/박자 이동, 단순 클릭 -> 선택/미리듣기, 더블클릭 -> 삭제
+    // 경우 C: 음표 본체 드래그 -> 단일/다중 이동(Alt: 복사 이동), Shift/Ctrl+클릭 -> 토글, 클릭 -> 선택/미리듣기, 더블클릭 -> 삭제
     const startClientX = e.clientX;
     const startClientY = e.clientY;
+    const toggleModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+    const dragIds = selectedIds.has(targetNote.id) ? new Set(selectedIds) : new Set([targetNote.id]);
+    const dragNotes = compiled.melody.filter((n) => dragIds.has(n.id));
+    const dragGroups = new Map<string, SVGGElement>();
+    for (const dn of dragNotes) {
+      const g = svg.querySelector<SVGGElement>(`.pr-note[data-note-id="${dn.id}"]`);
+      if (g) dragGroups.set(dn.id, g);
+    }
+
     const pointerStartStep = Math.floor((e.clientX - rect.left) / STEP_W);
     const grabStepOffset = Math.max(
       0,
       Math.min(Math.max(0, targetNote.duration - 1), pointerStartStep - targetNote.step)
     );
     let hasDragged = false;
-    let curStep = targetNote.step;
-    let curMidi = targetNote.midi;
+    let curDeltaStep = 0;
+    let curDeltaMidi = 0;
+    isPointerInteracting = true;
 
     const cleanup = () => {
+      isPointerInteracting = false;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onKeyDown);
-      noteGroup.classList.remove('dragging');
+      for (const g of dragGroups.values()) {
+        g.classList.remove('dragging');
+      }
       svg.classList.remove('pr-dragging');
+    };
+
+    const restoreDragGeometry = () => {
+      for (const dn of dragNotes) {
+        const g = dragGroups.get(dn.id);
+        if (g) {
+          applyNoteGroupGeometry(g, dn.step, dn.midi, dn.duration, dn.role);
+        }
+      }
     };
 
     const onMove = (ev: PointerEvent) => {
@@ -1225,39 +1657,55 @@ function wireL3Events(
           return;
         }
         hasDragged = true;
-        noteGroup.classList.add('dragging');
+        if (!selectedIds.has(targetNote.id)) {
+          selectedIds.clear();
+          selectedIds.add(targetNote.id);
+          syncSelectionUi();
+        }
+        for (const g of dragGroups.values()) {
+          g.classList.add('dragging');
+          raiseNoteOrder(g);
+        }
         svg.classList.add('pr-dragging');
-        raiseNoteOrder();
       }
 
       const curRect = svg.getBoundingClientRect();
       const pointerStep = Math.floor((ev.clientX - curRect.left) / STEP_W);
       const pointerRow = Math.floor((ev.clientY - curRect.top) / ROW_H);
-      const nextStep = Math.max(0, Math.min(compiled.totalSteps - 1, pointerStep - grabStepOffset));
-      const nextMidi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, PR_MAX_MIDI - pointerRow));
+      const targetStep = Math.max(0, Math.min(compiled.totalSteps - 1, pointerStep - grabStepOffset));
+      const targetMidi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, PR_MAX_MIDI - pointerRow));
 
-      if (nextMidi !== curMidi) {
-        callbacks.onAuditionPitch(nextMidi);
+      const clamped = clampGroupDelta(
+        baseNotes,
+        dragIds,
+        targetStep - targetNote.step,
+        targetMidi - targetNote.midi,
+        compiled.totalSteps,
+        bounds
+      );
+
+      if (clamped.deltaMidi !== curDeltaMidi) {
+        callbacks.onAuditionPitch(targetNote.midi + clamped.deltaMidi);
       }
 
-      if (nextStep !== curStep || nextMidi !== curMidi) {
-        curStep = nextStep;
-        curMidi = nextMidi;
-        const previewDur = Math.max(1, Math.min(targetNote.duration, compiled.totalSteps - curStep));
-        const liveRole = computeLiveRole(compiled, project, curStep, curMidi, previewDur);
-        applyNoteGroupGeometry(noteGroup, curStep, curMidi, previewDur, liveRole);
+      if (clamped.deltaStep !== curDeltaStep || clamped.deltaMidi !== curDeltaMidi) {
+        curDeltaStep = clamped.deltaStep;
+        curDeltaMidi = clamped.deltaMidi;
+        for (const dn of dragNotes) {
+          const g = dragGroups.get(dn.id);
+          if (!g) continue;
+          const ns = dn.step + curDeltaStep;
+          const nm = dn.midi + curDeltaMidi;
+          const previewDur = Math.max(1, Math.min(dn.duration, compiled.totalSteps - ns));
+          const liveRole = computeLiveRole(compiled, project, ns, nm, previewDur);
+          applyNoteGroupGeometry(g, ns, nm, previewDur, liveRole);
+        }
       }
     };
 
     const onCancel = () => {
       cleanup();
-      applyNoteGroupGeometry(
-        noteGroup,
-        targetNote.step,
-        targetNote.midi,
-        targetNote.duration,
-        targetNote.role
-      );
+      restoreDragGeometry();
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -1266,36 +1714,71 @@ function wireL3Events(
       }
     };
 
-    const onUp = () => {
+    const onUp = (ev: PointerEvent) => {
       cleanup();
       if (!hasDragged) {
         svg.focus({ preventScroll: true });
+        if (toggleModifier) {
+          if (selectedIds.has(targetNote.id)) {
+            selectedIds.delete(targetNote.id);
+          } else {
+            selectedIds.add(targetNote.id);
+            callbacks.onAuditionPitch(targetNote.midi);
+          }
+          lastClickNoteId = null;
+          syncSelectionUi();
+          return;
+        }
         const now = Date.now();
         if (lastClickNoteId === targetNote.id && now - lastClickAt <= 350) {
           lastClickNoteId = null;
           deletedInUpNoteId = targetNote.id;
-          deleteNoteById(targetNote.id);
+          selectedIds.delete(targetNote.id);
+          commitNotes(deletePianoRollNote(baseNotes, targetNote.id));
           return;
         }
-        selectNote(targetNote.id);
+        selectedIds.clear();
+        selectedIds.add(targetNote.id);
+        syncSelectionUi();
         callbacks.onAuditionPitch(targetNote.midi);
         lastClickNoteId = targetNote.id;
         lastClickAt = now;
         return;
       }
 
-      if (curStep !== targetNote.step || curMidi !== targetNote.midi) {
-        const next = cloneProject(project);
-        next.bakedMelody = movePianoRollNote(
+      if (curDeltaStep !== 0 || curDeltaMidi !== 0) {
+        if (e.altKey || ev.altKey) {
+          const clip = copyPianoRollNotes(baseNotes, dragIds);
+          if (clip) {
+            const targetStart = clip.sourceStartStep + curDeltaStep;
+            const prefix = `m_alt_${Date.now()}_${++pasteSeq}`;
+            const res = pastePianoRollNotes(
+              baseNotes,
+              clip,
+              targetStart,
+              compiled.totalSteps,
+              bounds,
+              prefix,
+              curDeltaMidi
+            );
+            if (res.pastedIds.length > 0) {
+              commitNotes(res.notes, res.pastedIds);
+              return;
+            }
+          }
+          restoreDragGeometry();
+          return;
+        }
+
+        const moved = movePianoRollNotes(
           baseNotes,
-          targetNote.id,
-          curStep,
-          curMidi,
+          dragIds,
+          curDeltaStep,
+          curDeltaMidi,
           compiled.totalSteps,
-          { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI }
+          bounds
         );
-        next.baked = true;
-        callbacks.onProjectChange(next);
+        commitNotes(moved, dragIds);
       }
     };
 

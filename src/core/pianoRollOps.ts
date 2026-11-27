@@ -5,6 +5,20 @@ export interface PitchBounds {
   maxMidi: number;
 }
 
+export interface NoteClipboardItem {
+  offsetStep: number;
+  midi: number;
+  duration: number;
+  velocity: number;
+}
+
+export interface NoteClipboard {
+  items: NoteClipboardItem[];
+  spanSteps: number;
+  sourceStartStep: number;
+  sourceEndStep: number;
+}
+
 export interface AddNoteParams {
   id: string;
   midi: number;
@@ -123,4 +137,215 @@ export function resizePianoRollNote(
     n.id === noteId ? { ...n, duration: clampedDur, origin: 'user' as const } : { ...n }
   );
   return normalizeMelodyNotes(updated, totalSteps);
+}
+
+/** 선택된 음표들을 상대 스텝 오프셋 기준 클립보드 데이터로 복사한다. */
+export function copyPianoRollNotes(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>
+): NoteClipboard | null {
+  if (selectedIds.size === 0) return null;
+  const selected = notes
+    .filter((n) => selectedIds.has(n.id))
+    .sort((a, b) => a.step - b.step || a.midi - b.midi);
+  if (selected.length === 0) return null;
+
+  const sourceStartStep = selected.reduce((min, n) => Math.min(min, n.step), selected[0].step);
+  const sourceEndStep = selected.reduce(
+    (max, n) => Math.max(max, n.step + Math.max(1, n.duration)),
+    selected[0].step + Math.max(1, selected[0].duration)
+  );
+
+  return {
+    items: selected.map((n) => ({
+      offsetStep: n.step - sourceStartStep,
+      midi: n.midi,
+      duration: Math.max(1, n.duration),
+      velocity: n.velocity,
+    })),
+    spanSteps: Math.max(1, sourceEndStep - sourceStartStep),
+    sourceStartStep,
+    sourceEndStep,
+  };
+}
+
+/** 선택된 ID 집합에 해당하는 음표를 모두 삭제한다. */
+export function deletePianoRollNotes(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>
+): NoteEvent[] {
+  if (selectedIds.size === 0) return notes.map((n) => ({ ...n }));
+  return notes.filter((n) => !selectedIds.has(n.id)).map((n) => ({ ...n }));
+}
+
+/** 선택된 음표 그룹 전체가 스텝/음높이 경계를 넘지 않도록 이동 델타를 제한한다. */
+export function clampGroupDelta(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>,
+  deltaStep: number,
+  deltaMidi: number,
+  totalSteps: number,
+  bounds: PitchBounds
+): { deltaStep: number; deltaMidi: number } {
+  if (totalSteps <= 0 || selectedIds.size === 0) {
+    return { deltaStep: 0, deltaMidi: 0 };
+  }
+  const selected = notes.filter((n) => selectedIds.has(n.id));
+  if (selected.length === 0) {
+    return { deltaStep: 0, deltaMidi: 0 };
+  }
+
+  let minStep = selected[0].step;
+  let maxStep = selected[0].step;
+  let minMidi = selected[0].midi;
+  let maxMidi = selected[0].midi;
+  for (const n of selected) {
+    if (n.step < minStep) minStep = n.step;
+    if (n.step > maxStep) maxStep = n.step;
+    if (n.midi < minMidi) minMidi = n.midi;
+    if (n.midi > maxMidi) maxMidi = n.midi;
+  }
+
+  const stepLo = -minStep;
+  const stepHi = totalSteps - 1 - maxStep;
+  const midiLo = bounds.minMidi - minMidi;
+  const midiHi = bounds.maxMidi - maxMidi;
+
+  const clampedStep =
+    stepLo <= stepHi ? clamp(Math.round(deltaStep), stepLo, stepHi) : 0;
+  const clampedMidi =
+    midiLo <= midiHi ? clamp(Math.round(deltaMidi), midiLo, midiHi) : 0;
+
+  return { deltaStep: clampedStep, deltaMidi: clampedMidi };
+}
+
+/** 선택된 음표들을 상대 간격을 유지한 채 일괄 이동한다. */
+export function movePianoRollNotes(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>,
+  deltaStep: number,
+  deltaMidi: number,
+  totalSteps: number,
+  bounds: PitchBounds
+): NoteEvent[] {
+  if (totalSteps <= 0) return [];
+  const selected = notes.filter((n) => selectedIds.has(n.id));
+  if (selected.length === 0) return notes.map((n) => ({ ...n }));
+
+  const clamped = clampGroupDelta(notes, selectedIds, deltaStep, deltaMidi, totalSteps, bounds);
+  if (clamped.deltaStep === 0 && clamped.deltaMidi === 0) {
+    return notes.map((n) => ({ ...n }));
+  }
+
+  const movedSelected: NoteEvent[] = selected.map((n) => {
+    const step = n.step + clamped.deltaStep;
+    const midi = n.midi + clamped.deltaMidi;
+    const duration = Math.max(1, Math.min(n.duration, totalSteps - step));
+    return {
+      ...n,
+      step,
+      midi,
+      duration,
+      origin: 'user' as const,
+    };
+  });
+
+  const occupiedSteps = new Set(movedSelected.map((n) => n.step));
+  const others = notes
+    .filter((n) => !selectedIds.has(n.id) && !occupiedSteps.has(n.step))
+    .map((n) => ({ ...n }));
+
+  return normalizeMelodyNotes([...others, ...movedSelected], totalSteps);
+}
+
+/** 클립보드 음표를 지정한 시작 스텝에 붙여넣고 새 음표 ID 목록과 끝 스텝을 반환한다. */
+export function pastePianoRollNotes(
+  notes: NoteEvent[],
+  clipboard: NoteClipboard,
+  targetStep: number,
+  totalSteps: number,
+  bounds: PitchBounds,
+  idPrefix = 'm_paste',
+  midiOffset = 0
+): { notes: NoteEvent[]; pastedIds: string[]; endStep: number } {
+  if (totalSteps <= 0) {
+    return { notes: [], pastedIds: [], endStep: 0 };
+  }
+
+  const baseStep = Math.round(targetStep);
+  const roundedMidiOffset = Math.round(midiOffset);
+  const placed: NoteEvent[] = [];
+  const pastedIds: string[] = [];
+
+  clipboard.items.forEach((item, idx) => {
+    const step = baseStep + item.offsetStep;
+    if (step < 0 || step >= totalSteps) return;
+    const midi = clamp(Math.round(item.midi + roundedMidiOffset), bounds.minMidi, bounds.maxMidi);
+    const duration = clamp(Math.round(item.duration), 1, totalSteps - step);
+    const id = `${idPrefix}_${idx}`;
+    pastedIds.push(id);
+    placed.push({
+      id,
+      midi,
+      step,
+      duration,
+      velocity: item.velocity,
+      origin: 'user',
+    });
+  });
+
+  if (placed.length === 0) {
+    return {
+      notes: notes.map((n) => ({ ...n })),
+      pastedIds: [],
+      endStep: Math.max(0, baseStep),
+    };
+  }
+
+  const occupiedSteps = new Set(placed.map((n) => n.step));
+  const kept = notes.filter((n) => !occupiedSteps.has(n.step)).map((n) => ({ ...n }));
+  const normalized = normalizeMelodyNotes([...kept, ...placed], totalSteps);
+  const pastedIdSet = new Set(pastedIds);
+  const endStep = normalized.reduce(
+    (max, n) => (pastedIdSet.has(n.id) ? Math.max(max, n.step + n.duration) : max),
+    baseStep
+  );
+
+  return { notes: normalized, pastedIds, endStep };
+}
+
+/** 선택된 음표 구간의 바로 뒤에 동일 모티프를 복제한다. */
+export function duplicatePianoRollNotes(
+  notes: NoteEvent[],
+  selectedIds: ReadonlySet<string>,
+  totalSteps: number,
+  bounds: PitchBounds,
+  idPrefix = 'm_dup'
+): { notes: NoteEvent[]; pastedIds: string[]; endStep: number } {
+  const clipboard = copyPianoRollNotes(notes, selectedIds);
+  if (!clipboard) {
+    return { notes: notes.map((n) => ({ ...n })), pastedIds: [], endStep: 0 };
+  }
+  return pastePianoRollNotes(notes, clipboard, clipboard.sourceEndStep, totalSteps, bounds, idPrefix);
+}
+
+/** 마키 드래그 영역(스텝/음높이 범위)과 겹치는 음표 ID 목록을 반환한다. */
+export function selectNotesInMarquee(
+  notes: NoteEvent[],
+  minStep: number,
+  maxStep: number,
+  minMidi: number,
+  maxMidi: number
+): string[] {
+  const loStep = Math.min(minStep, maxStep);
+  const hiStep = Math.max(minStep, maxStep);
+  const loMidi = Math.min(minMidi, maxMidi);
+  const hiMidi = Math.max(minMidi, maxMidi);
+
+  return notes
+    .filter((n) => {
+      const noteEnd = n.step + Math.max(1, n.duration) - 1;
+      return n.step <= hiStep && noteEnd >= loStep && n.midi >= loMidi && n.midi <= hiMidi;
+    })
+    .map((n) => n.id);
 }
