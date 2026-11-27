@@ -1,5 +1,5 @@
 import type { DiagnosisIssue, DiagnosisReport } from '../core/analyzer';
-import { COACH_CONFIG } from '../core/coachPatch';
+import { COACH_CONFIG, type CoachTurn, type CoachVisualDiff } from '../core/coachPatch';
 import type { SongProject } from '../core/model';
 
 export interface GeminiCoachSuggestion {
@@ -11,6 +11,7 @@ export interface GeminiCoachSuggestion {
   changeDescriptions: string[];
   warnings: string[];
   demoProject?: SongProject;
+  visualDiff?: CoachVisualDiff;
   hasHarmonyDemo: boolean;
   hasMelodyDemo: boolean;
 }
@@ -25,6 +26,8 @@ export interface GeminiCoachUiState {
   error: string | null;
   suggestion: GeminiCoachSuggestion | null;
   activePreview: 'before' | 'after' | null;
+  history: CoachTurn[];
+  showVisualCompare: boolean;
 }
 
 export interface CoachCallbacks {
@@ -40,6 +43,8 @@ export interface CoachCallbacks {
   onPreviewGeminiPatch: (after: boolean) => void;
   onOpenManualEditLayer: (layer: 'L2' | 'L3') => void;
   onDismissGeminiSuggestion: () => void;
+  onClearGeminiHistory: () => void;
+  onToggleVisualCompare: () => void;
 }
 
 function escapeHtml(text: string): string {
@@ -130,6 +135,10 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
         : '';
 
     const hasDemo = Boolean(s.demoProject && s.changeDescriptions.length > 0);
+    const hasVisualDiff = Boolean(
+      s.visualDiff &&
+        (s.visualDiff.changedChordBars.length > 0 || s.visualDiff.ghostNotes.length > 0)
+    );
     const demoHtml = hasDemo
       ? `
         <div class="gemini-patch-box">
@@ -148,6 +157,11 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
               data-gemini-preview="after"
               type="button"
             >▶ 이론 예시 듣기</button>
+            ${
+              hasVisualDiff
+                ? `<button class="btn btn-chip${gemini.showVisualCompare ? ' active' : ''}" id="btn-gemini-toggle-visual" type="button">${gemini.showVisualCompare ? '피아노롤 비교 숨기기' : '피아노롤 비교 보기'}</button>`
+                : ''
+            }
             ${
               s.hasHarmonyDemo
                 ? `<button class="btn btn-chip" data-gemini-open-layer="L2" type="button">L2에서 직접 바꾸기</button>`
@@ -183,6 +197,33 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
     `;
   }
 
+  const historyHtml =
+    gemini.history.length > 0
+      ? `
+        <div class="gemini-history-bar">
+          <span>후속 대화 맥락 (${gemini.history.length}/${COACH_CONFIG.limits.maxHistoryTurns}턴)</span>
+          <button class="btn btn-chip" id="btn-gemini-clear-history" type="button"${gemini.loading ? ' disabled' : ''}>새 대화</button>
+        </div>
+        <div class="gemini-history-list">
+          ${gemini.history
+            .map(
+              (turn) => `
+                <div class="gemini-history-item">
+                  <strong>Q:</strong> ${escapeHtml(turn.userPrompt)}
+                  <span> · <strong>A:</strong> ${escapeHtml(turn.assistantHeadline)}</span>
+                </div>
+              `
+            )
+            .join('')}
+        </div>
+      `
+      : '';
+
+  const promptPlaceholder =
+    gemini.history.length > 0
+      ? '이전 설명에 이어서 후속 질문을 입력해 보세요 (예: 그럼 3마디는 어떻게 연결해?)'
+      : '예: 왜 2마디가 어색하게 들려? / 4마디를 여운 있게 만드는 이론 알려 줘';
+
   return `
     <div class="gemini-coach-card">
       <div class="gemini-header">
@@ -204,12 +245,13 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
         </button>
       </div>
       <div class="gemini-quick-chips">${quickChipsHtml}</div>
+      ${historyHtml}
       <div class="gemini-prompt-row">
         <textarea
           id="gemini-prompt-input"
           rows="2"
           maxlength="${COACH_CONFIG.limits.maxPromptLength}"
-          placeholder="예: 왜 2마디가 어색하게 들려? / 4마디를 여운 있게 만드는 이론 알려 줘"
+          placeholder="${promptPlaceholder}"
           ${gemini.loading ? 'disabled' : ''}
         >${escapeHtml(gemini.promptDraft)}</textarea>
         <div class="gemini-submit-row">
@@ -342,5 +384,13 @@ export function renderCoachPanel(
 
   container.querySelector('#btn-gemini-dismiss')?.addEventListener('click', () => {
     callbacks.onDismissGeminiSuggestion();
+  });
+
+  container.querySelector('#btn-gemini-clear-history')?.addEventListener('click', () => {
+    callbacks.onClearGeminiHistory();
+  });
+
+  container.querySelector('#btn-gemini-toggle-visual')?.addEventListener('click', () => {
+    callbacks.onToggleVisualCompare();
   });
 }

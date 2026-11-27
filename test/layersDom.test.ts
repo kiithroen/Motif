@@ -608,4 +608,47 @@ describe('L3 PianoRoll pointer interactions', () => {
       true
     );
   });
+
+  it('overlays ghost notes and changed chord bars in L3 piano roll when coachCompare is provided', () => {
+    const project = makeTestProject();
+    const compiled = compileSong(project);
+    const onDismissCoachCompare = vi.fn();
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      coachCompareActive: true,
+      coachCompare: {
+        changedChordBars: [
+          {
+            bar: 3,
+            beforeSymbol: 'G',
+            afterSymbol: 'Fm',
+            afterDegree: 'iv',
+            afterTonesKo: '파·라♭·도',
+          },
+        ],
+        ghostNotes: [
+          { step: 48, midi: 74, duration: 4, bar: 3, label: '레' },
+          { step: 56, midi: 72, duration: 8, bar: 3, label: '도' },
+        ],
+        affectedMelodyBars: [3],
+      },
+      onSelectDuration: vi.fn(),
+      onProjectChange: vi.fn(),
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+      onDismissCoachCompare,
+    });
+
+    expect(container.querySelector('.pianoroll-wrap')?.classList.contains('coach-comparing')).toBe(true);
+    expect(container.querySelectorAll('.pr-ghost-note').length).toBe(2);
+    expect(container.querySelectorAll('.pr-coach-bar-tint').length).toBe(1);
+    const bar3 = container.querySelector('.pr-bar-cell[data-bar="3"]');
+    expect(bar3?.classList.contains('coach-changed-bar')).toBe(true);
+    expect(bar3?.querySelector('.pr-bar-coach-badge')?.textContent).toContain('Fm');
+    expect(container.querySelector('.pr-coach-badge')?.textContent).toContain('튜터 비교 표시 중');
+
+    container.querySelector<HTMLButtonElement>('#btn-hide-coach-compare')!.click();
+    expect(onDismissCoachCompare).toHaveBeenCalledTimes(1);
+  });
 });

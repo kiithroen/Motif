@@ -32,7 +32,9 @@
     "maxDemoMelodyBars": 2,
     "maxDemoMelodyNotesPerBar": 8,
     "minMelodyMidi": 60,
-    "maxMelodyMidi": 84
+    "maxMelodyMidi": 84,
+    "maxHistoryTurns": 3,
+    "maxHistorySummaryChars": 300
   },
   "quickPrompts": [
     {

@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { analyzeSong } from '../src/core/analyzer';
 import {
   COACH_CONFIG,
+  type CoachTurn,
   applyCoachPatch,
+  buildCoachContents,
   buildCoachContext,
   buildCoachResponseSchema,
+  buildCoachVisualDiff,
   describeCoachPatch,
   getMaxDemoChords,
   parseCoachResponse,
   sanitizeCoachPatch,
+  trimCoachHistory,
 } from '../src/core/coachPatch';
 import { compileSong } from '../src/core/compiler';
 import { PRESETS, createDefaultProject } from '../src/core/model';
@@ -215,5 +219,95 @@ describe('coachPatch tutor context, melody comparison, and strict guardrails', (
     const summary = describeCoachPatch(project, melodyDemo, melodyPatch);
     expect(summary[0]).toContain('멜로디 예시 (4마디)');
     expect(describeCoachPatch(project, applyCoachPatch(project, {}), {})).toEqual([]);
+  });
+
+  it('trims multi-turn history using config limits and builds multi-turn contents', () => {
+    const maxTurns = COACH_CONFIG.limits.maxHistoryTurns;
+    const maxSummaryChars = COACH_CONFIG.limits.maxHistorySummaryChars;
+    const longText = '가'.repeat(maxSummaryChars + 40);
+
+    const turns: CoachTurn[] = Array.from({ length: maxTurns + 2 }, (_, idx) => ({
+      mode: 'request',
+      userPrompt: `질문 ${idx + 1}`,
+      assistantHeadline: `요약 ${idx + 1}`,
+      assistantExplanation: idx === maxTurns + 1 ? longText : `설명 ${idx + 1}`,
+      patchSummary: idx === maxTurns ? '4마디 코드 예시' : undefined,
+    }));
+
+    const trimmed = trimCoachHistory(turns);
+    expect(trimmed.length).toBe(maxTurns);
+    expect(trimmed[0].userPrompt).toBe('질문 3');
+    expect(trimCoachHistory(turns, 0)).toEqual([]);
+
+    const project = createDefaultProject();
+    const compiled = compileSong(project);
+    const report = analyzeSong(compiled, project);
+    const ctx = buildCoachContext(project, compiled, report);
+
+    const contents = buildCoachContents(ctx, 'request', '후속 질문입니다', turns);
+    expect(contents.length).toBe(maxTurns * 2 + 1);
+    expect(contents[0]).toEqual({ role: 'user', parts: [{ text: '질문 3' }] });
+    expect(contents[1].role).toBe('model');
+
+    const lastModelMsg = JSON.parse(contents[contents.length - 2].parts[0].text) as {
+      headline: string;
+      explanation: string;
+      patchSummary?: string;
+    };
+    expect(lastModelMsg.explanation.length).toBe(maxSummaryChars + 3);
+    expect(lastModelMsg.explanation.endsWith('...')).toBe(true);
+
+    const latestUserMsg = contents[contents.length - 1];
+    expect(latestUserMsg.role).toBe('user');
+    expect(latestUserMsg.parts[0].text).toContain('이전 대화 맥락을 이어서 답하되');
+    expect(latestUserMsg.parts[0].text).toContain('후속 질문입니다');
+  });
+
+  it('extracts changed chord bars, explicit melodyBars ghost notes, and modifier-driven ghost notes', () => {
+    const project = createDefaultProject();
+    project.baked = false;
+    const beforeCompiled = compileSong(project);
+
+    const explicitPatch = {
+      chords: [{ bar: 4, degree: 'iv' as const }],
+      melodyBars: [
+        {
+          bar: 4,
+          notes: [
+            { stepInBar: 0, midi: 74, duration: 4 },
+            { stepInBar: 8, midi: 72, duration: 8 },
+          ],
+        },
+      ],
+    };
+    const explicitDemo = applyCoachPatch(project, explicitPatch);
+    const explicitCompiled = compileSong(explicitDemo);
+    const explicitDiff = buildCoachVisualDiff(beforeCompiled, explicitCompiled, explicitPatch);
+
+    expect(explicitDiff.changedChordBars.length).toBe(1);
+    expect(explicitDiff.changedChordBars[0]).toMatchObject({
+      bar: 3,
+      afterDegree: 'iv',
+      afterSymbol: explicitCompiled.resolvedChords[3].symbol,
+    });
+    expect(explicitDiff.ghostNotes).toMatchObject([
+      { step: 48, midi: 74, duration: 4, bar: 3 },
+      { step: 56, midi: 72, duration: 8, bar: 3 },
+    ]);
+    expect(explicitDiff.affectedMelodyBars).toEqual([3]);
+
+    const modPatch = {
+      modifiers: [{ id: 'passing_tones' as const, enabled: true, amount: 1 }],
+    };
+    const modDemo = applyCoachPatch(project, modPatch);
+    const modCompiled = compileSong(modDemo);
+    const modDiff = buildCoachVisualDiff(beforeCompiled, modCompiled, modPatch);
+
+    const beforeKeys = new Set(beforeCompiled.melody.map((n) => `${n.step}:${n.midi}:${n.duration}`));
+    const expectedChangedCount = modCompiled.melody.filter(
+      (n) => !beforeKeys.has(`${n.step}:${n.midi}:${n.duration}`)
+    ).length;
+    expect(modDiff.ghostNotes.length).toBe(expectedChangedCount);
+    expect(modDiff.changedChordBars).toEqual([]);
   });
 });

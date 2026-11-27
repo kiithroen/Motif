@@ -2,10 +2,11 @@ import type { DiagnosisReport } from '../core/analyzer';
 import {
   COACH_CONFIG,
   type CoachResponse,
+  type CoachTurn,
+  buildCoachContents,
   buildCoachContext,
   buildCoachResponseSchema,
   buildCoachSystemPrompt,
-  buildCoachUserPrompt,
   parseCoachResponse,
 } from '../core/coachPatch';
 import type { CompiledSong } from '../core/compiler';
@@ -23,6 +24,7 @@ export interface RequestGeminiCoachOptions {
   settings: GeminiCoachSettings;
   mode: 'explain' | 'request';
   userRequest?: string;
+  history?: CoachTurn[];
   project: SongProject;
   compiled: CompiledSong;
   report: DiagnosisReport;
@@ -153,11 +155,11 @@ export async function requestGeminiCoach(options: RequestGeminiCoachOptions): Pr
 
   const model = resolveValidModel(options.settings.model);
   const baseUrl = (options.settings.endpointBaseUrl ?? COACH_CONFIG.apiBaseUrl).replace(/\/+$/, '');
-  const url = `${baseUrl}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = `${baseUrl}/${encodeURIComponent(model)}:generateContent`;
 
   const context = buildCoachContext(options.project, options.compiled, options.report);
   const systemPrompt = buildCoachSystemPrompt(options.project.bars);
-  const userPrompt = buildCoachUserPrompt(context, options.mode, trimmedRequest);
+  const contents = buildCoachContents(context, options.mode, trimmedRequest, options.history);
 
   const generationConfig: Record<string, unknown> = {
     maxOutputTokens: COACH_CONFIG.generation.maxOutputTokens,
@@ -175,12 +177,7 @@ export async function requestGeminiCoach(options: RequestGeminiCoachOptions): Pr
     systemInstruction: {
       parts: [{ text: systemPrompt }],
     },
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: userPrompt }],
-      },
-    ],
+    contents,
     generationConfig,
   };
 
@@ -193,7 +190,10 @@ export async function requestGeminiCoach(options: RequestGeminiCoachOptions): Pr
   try {
     res = await fetchFn(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify(body),
       signal: options.signal,
     });

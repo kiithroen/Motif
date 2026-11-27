@@ -45,6 +45,8 @@ export interface CoachConfigData {
     maxDemoMelodyNotesPerBar: number;
     minMelodyMidi: number;
     maxMelodyMidi: number;
+    maxHistoryTurns: number;
+    maxHistorySummaryChars: number;
   };
   quickPrompts: CoachQuickPrompt[];
 }
@@ -90,6 +92,41 @@ export interface CoachResponse {
   manualSteps?: string[];
   patchSummary?: string;
   patch?: CoachPatch;
+}
+
+export interface CoachTurn {
+  mode: 'explain' | 'request';
+  userPrompt: string;
+  assistantHeadline: string;
+  assistantExplanation: string;
+  patchSummary?: string;
+}
+
+export interface CoachContentMessage {
+  role: 'user' | 'model';
+  parts: Array<{ text: string }>;
+}
+
+export interface CoachGhostNote {
+  step: number;
+  midi: number;
+  duration: number;
+  bar: number;
+  label: string;
+}
+
+export interface CoachChangedChordBar {
+  bar: number;
+  beforeSymbol: string;
+  afterSymbol: string;
+  afterDegree: DegreeSymbol;
+  afterTonesKo: string;
+}
+
+export interface CoachVisualDiff {
+  changedChordBars: CoachChangedChordBar[];
+  ghostNotes: CoachGhostNote[];
+  affectedMelodyBars: number[];
 }
 
 export interface CoachContextPayload {
@@ -408,11 +445,16 @@ export function buildCoachSystemPrompt(bars: 4 | 8 = 4): string {
 export function buildCoachUserPrompt(
   context: CoachContextPayload,
   mode: 'explain' | 'request',
-  userRequest?: string
+  userRequest?: string,
+  hasHistory = false
 ): string {
   const bakedNotice = context.song.baked
     ? '참고: 현재 곡은 사용자가 직접 편집한 L3 멜로디(baked=true) 상태다. 원곡은 보존되므로 필요 시 1~2마디 멜로디 대안(melodyBars)이나 화성 대안(chords)을 비교 예시로 들려주고 직접 수정할 manualSteps 를 안내하라.'
     : '참고: 현재 곡은 L1/L2 규칙 상태(baked=false)이므로 L2 코드·변형 카드 또는 국소 멜로디 비교 예시로 차이를 들려줄 수 있다.';
+
+  const historyNotice = hasHistory
+    ? '이전 대화 맥락을 이어서 답하되, 반드시 아래 최신 곡 상태 JSON을 기준으로 설명하라.'
+    : '';
 
   const instruction =
     mode === 'explain'
@@ -427,7 +469,58 @@ export function buildCoachUserPrompt(
           '질문에 대한 화성·멜로디 이론 원리를 먼저 설명하고, 사용자가 직접 바꿔 볼 manualSteps 와 필요 시 국소 비교 청취 예시(patch)를 제안하라.',
         ].join('\n');
 
-  return `${instruction}\n${bakedNotice}\n\n현재 곡 및 허용 카탈로그 JSON:\n${JSON.stringify(context)}`;
+  return [instruction, historyNotice, bakedNotice, '', '현재 곡 및 허용 카탈로그 JSON:', JSON.stringify(context)]
+    .filter((line, idx) => line.length > 0 || idx === 3)
+    .join('\n');
+}
+
+export function trimCoachHistory(
+  history: CoachTurn[],
+  maxTurns = COACH_CONFIG.limits.maxHistoryTurns
+): CoachTurn[] {
+  const safeMax = Math.max(0, Math.floor(maxTurns));
+  if (safeMax === 0 || history.length === 0) return [];
+  return history.slice(-safeMax);
+}
+
+export function buildCoachContents(
+  context: CoachContextPayload,
+  mode: 'explain' | 'request',
+  userRequest?: string,
+  history: CoachTurn[] = []
+): CoachContentMessage[] {
+  const recentHistory = trimCoachHistory(history);
+  const maxChars = Math.max(1, COACH_CONFIG.limits.maxHistorySummaryChars);
+  const contents: CoachContentMessage[] = [];
+
+  for (const turn of recentHistory) {
+    const truncatedExplanation =
+      turn.assistantExplanation.length > maxChars
+        ? `${turn.assistantExplanation.slice(0, maxChars)}...`
+        : turn.assistantExplanation;
+    const modelSummary: Record<string, string> = {
+      headline: turn.assistantHeadline,
+      explanation: truncatedExplanation,
+    };
+    if (turn.patchSummary) {
+      modelSummary.patchSummary = turn.patchSummary;
+    }
+    contents.push({
+      role: 'user',
+      parts: [{ text: turn.userPrompt }],
+    });
+    contents.push({
+      role: 'model',
+      parts: [{ text: JSON.stringify(modelSummary) }],
+    });
+  }
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: buildCoachUserPrompt(context, mode, userRequest, recentHistory.length > 0) }],
+  });
+
+  return contents;
 }
 
 export function extractJsonText(rawText: string): string {
@@ -811,4 +904,69 @@ export function describeCoachPatch(before: SongProject, after: SongProject, patc
   }
 
   return lines;
+}
+
+export function buildCoachVisualDiff(
+  beforeCompiled: CompiledSong,
+  demoCompiled: CompiledSong,
+  patch?: CoachPatch
+): CoachVisualDiff {
+  const changedChordBars: CoachChangedChordBar[] = [];
+  const barCount = Math.min(beforeCompiled.resolvedChords.length, demoCompiled.resolvedChords.length);
+  for (let i = 0; i < barCount; i++) {
+    const before = beforeCompiled.resolvedChords[i];
+    const after = demoCompiled.resolvedChords[i];
+    if (before.symbol !== after.symbol || before.degree !== after.degree) {
+      changedChordBars.push({
+        bar: i,
+        beforeSymbol: before.symbol,
+        afterSymbol: after.symbol,
+        afterDegree: after.degree,
+        afterTonesKo: after.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·'),
+      });
+    }
+  }
+
+  const patchBars = new Set((patch?.melodyBars ?? []).map((mb) => mb.bar - 1));
+  const ghostNotes: CoachGhostNote[] = [];
+
+  if (patchBars.size > 0) {
+    for (const n of demoCompiled.melody) {
+      const bar = Math.floor(n.step / 16);
+      if (patchBars.has(bar)) {
+        ghostNotes.push({
+          step: n.step,
+          midi: n.midi,
+          duration: n.duration,
+          bar,
+          label: koreanNoteName(n.midi),
+        });
+      }
+    }
+  } else {
+    const beforeKeys = new Set(
+      beforeCompiled.melody.map((n) => `${n.step}:${n.midi}:${n.duration}`)
+    );
+    for (const n of demoCompiled.melody) {
+      const key = `${n.step}:${n.midi}:${n.duration}`;
+      if (!beforeKeys.has(key)) {
+        ghostNotes.push({
+          step: n.step,
+          midi: n.midi,
+          duration: n.duration,
+          bar: Math.floor(n.step / 16),
+          label: koreanNoteName(n.midi),
+        });
+      }
+    }
+  }
+
+  const affectedSet = new Set<number>([...patchBars, ...ghostNotes.map((g) => g.bar)]);
+  const affectedMelodyBars = Array.from(affectedSet).sort((a, b) => a - b);
+
+  return {
+    changedChordBars,
+    ghostNotes,
+    affectedMelodyBars,
+  };
 }

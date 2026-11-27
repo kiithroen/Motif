@@ -20,6 +20,8 @@ function makeCallbacks(): CoachCallbacks {
     onPreviewGeminiPatch: vi.fn(),
     onOpenManualEditLayer: vi.fn(),
     onDismissGeminiSuggestion: vi.fn(),
+    onClearGeminiHistory: vi.fn(),
+    onToggleVisualCompare: vi.fn(),
   };
 }
 
@@ -34,6 +36,8 @@ function makeUiState(overrides: Partial<GeminiCoachUiState> = {}): GeminiCoachUi
     error: null,
     suggestion: null,
     activePreview: null,
+    history: [],
+    showVisualCompare: true,
     ...overrides,
   };
 }
@@ -152,5 +156,69 @@ describe('coachPanel DOM interactions and read-only Gemini tutor UI', () => {
 
     container.querySelector<HTMLButtonElement>('#btn-gemini-dismiss')!.click();
     expect(callbacks.onDismissGeminiSuggestion).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders multi-turn history list safely and handles clear-history and visual-compare toggles', () => {
+    const project = createDefaultProject();
+    const demo = createDefaultProject();
+    demo.chain.chords[3].degree = 'iv';
+    const report = analyzeSong(compileSong(project), project);
+    const callbacks = makeCallbacks();
+
+    renderCoachPanel(
+      container,
+      report,
+      makeUiState({
+        hasApiKey: true,
+        maskedKey: 'AIza...1234',
+        showVisualCompare: true,
+        history: [
+          {
+            mode: 'request',
+            userPrompt: '<img src=x onerror=alert(1)>3마디 질문',
+            assistantHeadline: '<b>3마디 안내</b>',
+            assistantExplanation: '설명',
+          },
+        ],
+        suggestion: {
+          headline: '시각 비교 테스트',
+          explanation: '피아노롤 비교 토글 확인',
+          manualSteps: [],
+          changeDescriptions: ['마디 코드 예시: 4마디 IV→iv'],
+          warnings: [],
+          demoProject: demo,
+          visualDiff: {
+            changedChordBars: [
+              {
+                bar: 3,
+                beforeSymbol: 'F',
+                afterSymbol: 'Fm',
+                afterDegree: 'iv',
+                afterTonesKo: '파·라♭·도',
+              },
+            ],
+            ghostNotes: [{ step: 48, midi: 72, duration: 4, bar: 3, label: '도' }],
+            affectedMelodyBars: [3],
+          },
+          hasHarmonyDemo: true,
+          hasMelodyDemo: true,
+        },
+      }),
+      callbacks
+    );
+
+    expect(container.querySelector('.gemini-history-bar')?.textContent).toContain(
+      `1/${COACH_CONFIG.limits.maxHistoryTurns}턴`
+    );
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('.gemini-history-item').length).toBe(1);
+
+    container.querySelector<HTMLButtonElement>('#btn-gemini-clear-history')!.click();
+    expect(callbacks.onClearGeminiHistory).toHaveBeenCalledTimes(1);
+
+    const toggleVisualBtn = container.querySelector<HTMLButtonElement>('#btn-gemini-toggle-visual')!;
+    expect(toggleVisualBtn.textContent).toBe('피아노롤 비교 숨기기');
+    toggleVisualBtn.click();
+    expect(callbacks.onToggleVisualCompare).toHaveBeenCalledTimes(1);
   });
 });

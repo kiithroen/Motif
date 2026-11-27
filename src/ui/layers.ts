@@ -1,3 +1,4 @@
+import type { CoachVisualDiff } from '../core/coachPatch';
 import { type CompiledSong, previewModifierDiff } from '../core/compiler';
 import { PRESETS, type ModifierId, type NoteEvent, type SongProject, cloneProject } from '../core/model';
 import {
@@ -34,6 +35,8 @@ export interface LayerCallbacks {
   selectedDuration: number;
   loopRange?: LoopBarRange | null;
   preserveBakedOnChordChange?: boolean;
+  coachCompare?: CoachVisualDiff | null;
+  coachCompareActive?: boolean;
   onSelectDuration: (steps: number) => void;
   onTogglePreserveBaked?: (preserve: boolean) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
@@ -41,6 +44,16 @@ export interface LayerCallbacks {
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
   onSeekBar?: (barIdx: number) => void;
   onLoopRangeChange?: (range: LoopBarRange | null) => void;
+  onDismissCoachCompare?: () => void;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 const PR_MIN_MIDI = 60; // C4
@@ -187,6 +200,8 @@ export function renderLayerEditor(
     showDurationPicker: true,
     showUnbake: false,
     loopRange: callbacks.loopRange,
+    coachCompare: callbacks.coachCompare,
+    coachCompareActive: callbacks.coachCompareActive,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
@@ -620,6 +635,8 @@ function renderL3Body(
     showDurationPicker: boolean;
     showUnbake: boolean;
     loopRange?: LoopBarRange | null;
+    coachCompare?: CoachVisualDiff | null;
+    coachCompareActive?: boolean;
   } = { showDurationPicker: true, showUnbake: false }
 ): string {
   const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
@@ -632,6 +649,14 @@ function renderL3Body(
   const normalizedLoop = normalizeLoopRange(opts.loopRange, totalBars);
   const activeBar =
     activeStep >= 0 && activeStep < compiled.totalSteps ? Math.floor(activeStep / 16) : -1;
+  const coachCompare = opts.coachCompare ?? null;
+  const hasCoachDiff = Boolean(
+    coachCompare &&
+      (coachCompare.changedChordBars.length > 0 || coachCompare.ghostNotes.length > 0)
+  );
+  const changedChordMap = new Map(
+    (coachCompare?.changedChordBars ?? []).map((item) => [item.bar, item])
+  );
 
   let keysHtml = '';
   let gridRows = '';
@@ -672,6 +697,7 @@ function renderL3Body(
   const barHeaderCells = compiled.resolvedChords
     .map((rc, idx) => {
       const tones = rc.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
+      const changedChord = hasCoachDiff ? changedChordMap.get(idx) : undefined;
       const inLoop = Boolean(
         normalizedLoop && idx >= normalizedLoop.startBar && idx <= normalizedLoop.endBar
       );
@@ -684,14 +710,19 @@ function renderL3Body(
         inLoop ? 'in-loop' : '',
         isStart ? 'loop-start' : '',
         isEnd ? 'loop-end' : '',
+        changedChord ? 'coach-changed-bar' : '',
       ]
         .filter(Boolean)
         .join(' ');
+      const coachChordBadge = changedChord
+        ? `<span class="pr-bar-coach-badge" title="튜터 비교 코드: ${escapeHtml(changedChord.afterSymbol)} (${escapeHtml(changedChord.afterTonesKo)})">→ ${escapeHtml(changedChord.afterSymbol)}</span>`
+        : '';
       return `
         <div class="${cls}" data-bar="${idx}" style="width:${barWidth}px" title="클릭해 ${idx + 1}마디부터 재생 · 드래그로 구간 반복 지정">
           <span class="pr-bar-num"><span class="pr-bar-seek-icon">▶</span>${idx + 1}마디</span>
           <span class="pr-bar-meta">
             <strong>${rc.symbol} (${tones})</strong>
+            ${coachChordBadge}
             <button class="pr-bar-loop-btn${inLoop ? ' active' : ''}" data-loop-bar="${idx}" type="button" title="${idx + 1}마디 구간 반복 토글 (Shift+클릭으로 구간 확장)">↻</button>
           </span>
         </div>
@@ -726,6 +757,24 @@ function renderL3Body(
       `
     : '';
 
+  const coachBadgeHtml = hasCoachDiff
+    ? `
+        <span class="pr-coach-badge">
+          <span>튜터 비교 표시 중</span>
+          <button class="btn btn-chip" id="btn-hide-coach-compare" type="button">비교 숨기기</button>
+        </span>
+      `
+    : '';
+
+  let coachBarTints = '';
+  if (hasCoachDiff && coachCompare) {
+    for (const c of coachCompare.changedChordBars) {
+      if (c.bar >= 0 && c.bar < totalBars) {
+        coachBarTints += `<rect class="pr-coach-bar-tint" x="${c.bar * barWidth}" y="0" width="${barWidth}" height="${svgH}" pointer-events="none"/>`;
+      }
+    }
+  }
+
   let noteRects = '';
   for (const n of compiled.melody) {
     if (n.midi < PR_MIN_MIDI || n.midi > PR_MAX_MIDI) continue;
@@ -747,6 +796,25 @@ function renderL3Body(
     `;
   }
 
+  let ghostNoteRects = '';
+  if (hasCoachDiff && coachCompare) {
+    for (const g of coachCompare.ghostNotes) {
+      if (g.midi < PR_MIN_MIDI || g.midi > PR_MAX_MIDI) continue;
+      const rowIdx = PR_MAX_MIDI - g.midi;
+      const x = g.step * STEP_W + 1;
+      const y = rowIdx * ROW_H + 2;
+      const w = Math.max(STEP_W - 2, g.duration * STEP_W - 2);
+      const h = ROW_H - 4;
+      const label = g.duration >= 2 ? g.label : '';
+      ghostNoteRects += `
+        <g class="pr-ghost-note" data-bar="${g.bar}" pointer-events="none">
+          <rect class="pr-ghost-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4"/>
+          <text class="pr-ghost-label" x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" pointer-events="none">${escapeHtml(label)}</text>
+        </g>
+      `;
+    }
+  }
+
   let loopOverlay = '';
   if (normalizedLoop) {
     const win = loopRangeToStepRange(normalizedLoop, compiled.totalSteps);
@@ -766,17 +834,23 @@ function renderL3Body(
   const playheadX = visiblePlayhead ? activeStep * STEP_W : 0;
   const playhead = `<line class="pr-playhead" x1="${playheadX}" y1="0" x2="${playheadX}" y2="${svgH}" stroke="#fbbf24" stroke-width="2" visibility="${visiblePlayhead ? 'visible' : 'hidden'}"/>`;
 
+  const ghostLegendHtml = hasCoachDiff
+    ? `<span class="legend-item"><span class="swatch swatch-ghost"></span>튜터 예시 (고스트)</span>`
+    : '';
+
   return `
-    <div class="pianoroll-wrap">
+    <div class="pianoroll-wrap${hasCoachDiff && opts.coachCompareActive ? ' coach-comparing' : ''}">
       <div class="pianoroll-toolbar">
         <div class="legend">
           <span class="legend-item"><span class="swatch" style="background:#34d399"></span>코드톤 (안정)</span>
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
+          ${ghostLegendHtml}
         </div>
         <div class="controls-row">
           ${durationButtons}
           ${loopBadgeHtml}
+          ${coachBadgeHtml}
         </div>
         <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸: 추가 · 클릭: 미리듣기 · 드래그: 이동 · 더블/우클릭·Del: 삭제 · PC 건반(A~K)</span>
       </div>
@@ -790,8 +864,10 @@ function renderL3Body(
           <svg class="pr-svg" tabindex="0" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
             ${gridRows}
             ${chordHighlights}
+            ${coachBarTints}
             ${vLines}
             ${noteRects}
+            ${ghostNoteRects}
             ${loopOverlay}
             ${playhead}
           </svg>
@@ -830,6 +906,10 @@ function wireL3Events(
 
   container.querySelector('#btn-clear-loop')?.addEventListener('click', () => {
     callbacks.onLoopRangeChange?.(null);
+  });
+
+  container.querySelector('#btn-hide-coach-compare')?.addEventListener('click', () => {
+    callbacks.onDismissCoachCompare?.();
   });
 
   container.querySelectorAll<HTMLButtonElement>('[data-loop-bar]').forEach((btn) => {

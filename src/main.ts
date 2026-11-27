@@ -16,7 +16,13 @@ import {
   evaluateBasicLesson,
   getBasicLessonById,
 } from './core/basics';
-import { applyCoachPatch, describeCoachPatch } from './core/coachPatch';
+import {
+  type CoachVisualDiff,
+  applyCoachPatch,
+  buildCoachVisualDiff,
+  describeCoachPatch,
+  trimCoachHistory,
+} from './core/coachPatch';
 import {
   bakeProjectMelody,
   compileSong,
@@ -295,6 +301,8 @@ function init(): void {
     error: null,
     suggestion: null,
     activePreview: null,
+    history: [],
+    showVisualCompare: true,
   };
 
   const audio = new MotifAudioEngine();
@@ -315,6 +323,9 @@ function init(): void {
         coachEl
           .querySelectorAll<HTMLButtonElement>('[data-gemini-preview]')
           .forEach((btn) => btn.classList.remove('active'));
+        if (appMode !== 'basics') {
+          renderDynamicParts();
+        }
       }
       renderTopControls();
       if (appMode === 'basics') {
@@ -407,6 +418,8 @@ function init(): void {
     geminiUiState.error = null;
     geminiUiState.suggestion = null;
     geminiUiState.activePreview = null;
+    geminiUiState.history = [];
+    geminiUiState.showVisualCompare = true;
     history.clear();
     activeStep = -1;
     loopRange = null;
@@ -964,6 +977,8 @@ function init(): void {
       selectedDuration,
       loopRange,
       preserveBakedOnChordChange,
+      coachCompare: geminiUiState.showVisualCompare ? (geminiUiState.suggestion?.visualDiff ?? null) : null,
+      coachCompareActive: geminiUiState.activePreview === 'after',
       onSelectDuration: (steps) => {
         selectedDuration = steps;
         renderDynamicParts();
@@ -976,6 +991,11 @@ function init(): void {
       onAuditionPitch: auditionPitch,
       onSeekBar: seekToBar,
       onLoopRangeChange: setLoopRange,
+      onDismissCoachCompare: () => {
+        geminiUiState.showVisualCompare = false;
+        renderDynamicParts();
+        renderCoachSection();
+      },
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId, chordView);
         transport.playOncePreview(
@@ -1189,6 +1209,7 @@ function init(): void {
         settings: geminiSettings,
         mode,
         userRequest: trimmedPrompt,
+        history: geminiUiState.history,
         project: baseSnapshot,
         compiled: baseCompiled,
         report: baseReport,
@@ -1199,14 +1220,18 @@ function init(): void {
 
       let demoProject: SongProject | undefined;
       let changeDescriptions: string[] = [];
+      let visualDiff: CoachVisualDiff | undefined;
       if (res.response.patch) {
         const candidate = applyCoachPatch(baseSnapshot, res.response.patch);
         changeDescriptions = describeCoachPatch(baseSnapshot, candidate, res.response.patch);
         if (changeDescriptions.length > 0) {
           demoProject = candidate;
+          const demoCompiled = compileSong(candidate, chordView);
+          visualDiff = buildCoachVisualDiff(baseCompiled, demoCompiled, res.response.patch);
         }
       }
 
+      geminiUiState.showVisualCompare = true;
       geminiUiState.suggestion = {
         headline: res.response.headline,
         explanation: res.response.explanation,
@@ -1216,11 +1241,25 @@ function init(): void {
         changeDescriptions,
         warnings: res.warnings,
         demoProject,
+        visualDiff,
         hasHarmonyDemo: Boolean(
           res.response.patch?.chords?.length || res.response.patch?.modifiers?.length
         ),
         hasMelodyDemo: Boolean(res.response.patch?.melodyBars?.length),
       };
+      geminiUiState.history = trimCoachHistory([
+        ...geminiUiState.history,
+        {
+          mode,
+          userPrompt: mode === 'explain' ? '현재 분석 리포트 쉽게 풀기' : trimmedPrompt,
+          assistantHeadline: res.response.headline,
+          assistantExplanation: res.response.explanation,
+          patchSummary: res.response.patchSummary,
+        },
+      ]);
+      if (mode === 'request') {
+        geminiUiState.promptDraft = '';
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       if (geminiAbort !== controller) return;
@@ -1229,6 +1268,9 @@ function init(): void {
       if (geminiAbort === controller) {
         geminiAbort = null;
         geminiUiState.loading = false;
+        if (appMode !== 'basics') {
+          renderDynamicParts();
+        }
         renderCoachSection();
       }
     }
@@ -1293,6 +1335,7 @@ function init(): void {
         if (after) {
           const previewCompiled = compileSong(sug.demoProject, chordView);
           geminiUiState.activePreview = 'after';
+          geminiUiState.showVisualCompare = true;
           transport.playOncePreview(
             previewCompiled,
             project.bpm,
@@ -1304,10 +1347,9 @@ function init(): void {
           geminiUiState.activePreview = 'before';
           transport.playOncePreview(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
         }
+        renderDynamicParts();
+        renderCoachSection();
         renderTopControls();
-        coachEl.querySelectorAll<HTMLButtonElement>('[data-gemini-preview]').forEach((btn) => {
-          btn.classList.toggle('active', btn.dataset.geminiPreview === geminiUiState.activePreview);
-        });
       },
       onOpenManualEditLayer: (layer) => {
         if (project.activeLayer === layer) return;
@@ -1318,6 +1360,21 @@ function init(): void {
       onDismissGeminiSuggestion: () => {
         geminiUiState.suggestion = null;
         geminiUiState.activePreview = null;
+        renderDynamicParts();
+        renderCoachSection();
+      },
+      onClearGeminiHistory: () => {
+        abortGeminiRequest();
+        geminiUiState.history = [];
+        geminiUiState.suggestion = null;
+        geminiUiState.activePreview = null;
+        geminiUiState.error = null;
+        renderDynamicParts();
+        renderCoachSection();
+      },
+      onToggleVisualCompare: () => {
+        geminiUiState.showVisualCompare = !geminiUiState.showVisualCompare;
+        renderDynamicParts();
         renderCoachSection();
       },
     });

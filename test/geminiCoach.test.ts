@@ -68,8 +68,12 @@ describe('geminiCoach REST adapter', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain(`${COACH_CONFIG.defaultModel}:generateContent?key=AIzaTestSecretKey123456`);
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(String(url)).toContain(`${COACH_CONFIG.defaultModel}:generateContent`);
+    expect(String(url)).not.toContain('key=');
+    expect(init?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'x-goog-api-key': 'AIzaTestSecretKey123456',
+    });
 
     const sentBody = JSON.parse(String(init?.body)) as {
       systemInstruction: { parts: Array<{ text: string }> };
@@ -167,5 +171,65 @@ describe('geminiCoach REST adapter', () => {
 
     expect(maskApiKey('AIza1234567890')).toBe('AIza...7890');
     expect(maskApiKey('short')).toBe('****');
+  });
+
+  it('sends multi-turn conversation history in contents when history is provided', async () => {
+    const { project, compiled, report } = createBaseArgs();
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      headline: '후속 답변 요약',
+                      explanation: '앞선 4마디 설명에 이어 3마디를 V7으로 연결하면 긴장감이 커집니다.',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const history = [
+      {
+        mode: 'request' as const,
+        userPrompt: '4마디 끝음 어떻게 할까?',
+        assistantHeadline: '4마디 종지 안정화',
+        assistantExplanation: '으뜸음 도로 착지하면 안정적입니다.',
+        patchSummary: '4마디 멜로디 비교',
+      },
+    ];
+
+    await requestGeminiCoach({
+      settings: { apiKey: 'AIzaMultiTurnKey', model: COACH_CONFIG.defaultModel },
+      mode: 'request',
+      userRequest: '그럼 3마디는?',
+      history,
+      project,
+      compiled,
+      report,
+      fetchImpl: fetchMock,
+    });
+
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      contents: Array<{ role: string; parts: Array<{ text: string }> }>;
+    };
+    expect(sentBody.contents.length).toBe(3);
+    expect(sentBody.contents[0]).toEqual({
+      role: 'user',
+      parts: [{ text: '4마디 끝음 어떻게 할까?' }],
+    });
+    expect(sentBody.contents[1].role).toBe('model');
+    expect(sentBody.contents[1].parts[0].text).toContain('4마디 종지 안정화');
+    expect(sentBody.contents[2].role).toBe('user');
+    expect(sentBody.contents[2].parts[0].text).toContain('그럼 3마디는?');
+    expect(sentBody.contents[2].parts[0].text).toContain('이전 대화 맥락');
   });
 });
