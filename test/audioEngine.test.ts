@@ -4,6 +4,7 @@ import {
   type SampleLoadStatus,
   type SamplerBundle,
   type SamplerVoice,
+  toMidiVelocity,
 } from '../src/audio/instruments';
 
 function makeAudioParam(initial = 0) {
@@ -130,7 +131,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
       note: 60,
       time: 11.0,
       duration: expect.closeTo(0.54, 5),
-      velocity: 102,
+      velocity: toMidiVelocity(0.8),
     });
 
     engine.playGuitar(64, 11.2, 0.4, 0.75);
@@ -138,7 +139,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
       note: 64,
       time: 11.2,
       duration: expect.closeTo(0.48, 5),
-      velocity: 95,
+      velocity: toMidiVelocity(0.75),
     });
 
     engine.playBass(36, 11.4, 0.25, 0.9);
@@ -146,15 +147,20 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
       note: 36,
       time: 11.4,
       duration: 0.25,
-      velocity: 114,
+      velocity: toMidiVelocity(0.9),
     });
 
     engine.playDrum('snare', 11.6, 0.6);
     expect(drums.start).toHaveBeenCalledWith({
       note: 'snare-m',
       time: 11.6,
-      velocity: 76,
+      velocity: toMidiVelocity(0.6),
     });
+
+    // 약박 벨로시티(0.4)는 제곱 감쇠 보정 커브에 의해 단순 선형(0.4 * 127)보다 높게 유지된다.
+    expect(toMidiVelocity(0.4)).toBeGreaterThan(Math.round(0.4 * 127));
+    expect(toMidiVelocity(0)).toBeGreaterThanOrEqual(1);
+    expect(toMidiVelocity(1.5)).toBeLessThanOrEqual(127);
 
     engine.stopAll();
     expect(piano.stop).toHaveBeenCalledWith(10);

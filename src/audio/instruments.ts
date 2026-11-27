@@ -36,8 +36,10 @@ export function midiToFreq(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-function toMidiVelocity(velocity: number): number {
-  return Math.max(1, Math.min(127, Math.round(velocity * 127)));
+export function toMidiVelocity(velocity: number): number {
+  const clamped = Math.max(0.02, Math.min(1, velocity));
+  // smplr 내부 제곱 감쇠((vel/127)^2)로 약박이 과도하게 묻히지 않도록 지수 커브로 보정한다.
+  return Math.max(1, Math.min(127, Math.round(Math.pow(clamped, 0.65) * 127)));
 }
 
 function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): SamplerBundle {
@@ -46,7 +48,7 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
   const piano = SplendidGrandPiano(ctx, {
     destination: buses.piano,
     storage,
-    volume: 104,
+    volume: 127,
     decayTime: 0.35,
     notesToLoad: {
       notes: PIANO_SAMPLE_NOTES,
@@ -58,7 +60,8 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
     instrument: 'acoustic_guitar_nylon',
     destination: buses.guitar,
     storage,
-    volume: 108,
+    volume: 127,
+    extraGain: 7.5,
     notesToLoad: {
       notes: GUITAR_SAMPLE_NOTES,
       fallback: 'nearest',
@@ -69,7 +72,8 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
     instrument: 'electric_bass_finger',
     destination: buses.bass,
     storage,
-    volume: 104,
+    volume: 127,
+    extraGain: 7.5,
     notesToLoad: {
       notes: BASS_SAMPLE_NOTES,
       fallback: 'nearest',
@@ -80,7 +84,7 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
     instrument: 'LM-2',
     destination: buses.drums,
     storage,
-    volume: 98,
+    volume: 127,
   });
 
   return {
@@ -156,64 +160,71 @@ export class MotifAudioEngine {
       this.ctx = ctx;
 
       const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -4;
-      comp.knee.value = 12;
-      comp.ratio.value = 2.0;
-      comp.attack.value = 0.008;
-      comp.release.value = 0.2;
+      comp.threshold.value = -6;
+      comp.knee.value = 14;
+      comp.ratio.value = 2.5;
+      comp.attack.value = 0.006;
+      comp.release.value = 0.18;
 
       const master = ctx.createGain();
-      master.gain.value = 0.9;
+      master.gain.value = 0.92;
       comp.connect(master);
       master.connect(ctx.destination);
 
-      // 화이트 노이즈 리버브를 제거하고 악기별 대역을 분리해 선명도를 확보한다.
+      // 그랜드 피아노 음압을 기준으로 낮추고 기타·베이스·드럼 존재감을 맞춘다.
       const pianoGain = ctx.createGain();
-      pianoGain.gain.value = 0.95;
+      pianoGain.gain.value = 0.76;
       pianoGain.connect(comp);
 
       const guitarLowCut = ctx.createBiquadFilter();
       guitarLowCut.type = 'peaking';
       guitarLowCut.frequency.value = 220;
       guitarLowCut.Q.value = 1.2;
-      guitarLowCut.gain.value = -2;
+      guitarLowCut.gain.value = -1.5;
 
       const guitarPresence = ctx.createBiquadFilter();
       guitarPresence.type = 'peaking';
-      guitarPresence.frequency.value = 2800;
+      guitarPresence.frequency.value = 2600;
       guitarPresence.Q.value = 1.0;
-      guitarPresence.gain.value = 1.5;
+      guitarPresence.gain.value = 2.5;
 
       const guitarGain = ctx.createGain();
-      guitarGain.gain.value = 0.92;
+      guitarGain.gain.value = 1.45;
       guitarLowCut.connect(guitarPresence);
       guitarPresence.connect(guitarGain);
       guitarGain.connect(comp);
 
+      const bassPresence = ctx.createBiquadFilter();
+      bassPresence.type = 'peaking';
+      bassPresence.frequency.value = 900;
+      bassPresence.Q.value = 1.0;
+      bassPresence.gain.value = 2.5;
+
       const bassLp = ctx.createBiquadFilter();
       bassLp.type = 'lowpass';
-      bassLp.frequency.value = 1500;
+      bassLp.frequency.value = 2400;
 
       const bassGain = ctx.createGain();
-      bassGain.gain.value = 0.88;
+      bassGain.gain.value = 1.4;
+      bassPresence.connect(bassLp);
       bassLp.connect(bassGain);
       bassGain.connect(comp);
 
       const drumGain = ctx.createGain();
-      drumGain.gain.value = 0.78;
+      drumGain.gain.value = 1.45;
       drumGain.connect(comp);
 
       this.master = master;
       this.pianoBus = pianoGain;
       this.guitarBus = guitarLowCut;
-      this.bassBus = bassLp;
+      this.bassBus = bassPresence;
       this.drumBus = drumGain;
       this.noiseBuf = this.buildNoiseBuffer(ctx);
 
       this.initSamplers(ctx, {
         piano: pianoGain,
         guitar: guitarLowCut,
-        bass: bassLp,
+        bass: bassPresence,
         drums: drumGain,
       });
     }
@@ -449,7 +460,7 @@ export class MotifAudioEngine {
     pluckFilter.frequency.exponentialRampToValueAtTime(Math.max(680, freq * 1.9), t0 + 0.35);
 
     const env = ctx.createGain();
-    const peak = Math.max(0.01, Math.min(0.32, velocity * 0.28));
+    const peak = Math.max(0.01, Math.min(0.24, velocity * 0.2));
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(peak, t0 + 0.006);
     env.gain.exponentialRampToValueAtTime(peak * 0.42, t0 + Math.max(0.08, durationSec * 0.55));
@@ -492,7 +503,7 @@ export class MotifAudioEngine {
     lp.frequency.exponentialRampToValueAtTime(170, end);
 
     const env = ctx.createGain();
-    const peak = Math.min(0.34, velocity * 0.28);
+    const peak = Math.min(0.26, velocity * 0.2);
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(peak, t0 + 0.006);
     env.gain.exponentialRampToValueAtTime(0.0001, end);
@@ -519,7 +530,7 @@ export class MotifAudioEngine {
 
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.001, t0);
-      g.gain.linearRampToValueAtTime(velocity * 0.55, t0 + 0.004);
+      g.gain.linearRampToValueAtTime(velocity * 0.4, t0 + 0.004);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
 
       osc.connect(g);
@@ -538,7 +549,7 @@ export class MotifAudioEngine {
       bp.Q.value = 0.9;
       const ng = ctx.createGain();
       ng.gain.setValueAtTime(0.0001, t0);
-      ng.gain.linearRampToValueAtTime(velocity * 0.24, t0 + 0.003);
+      ng.gain.linearRampToValueAtTime(velocity * 0.18, t0 + 0.003);
       ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
 
       const tone = ctx.createOscillator();
@@ -547,7 +558,7 @@ export class MotifAudioEngine {
       tone.frequency.exponentialRampToValueAtTime(110, t0 + 0.07);
       const tg = ctx.createGain();
       tg.gain.setValueAtTime(0.0001, t0);
-      tg.gain.linearRampToValueAtTime(velocity * 0.22, t0 + 0.003);
+      tg.gain.linearRampToValueAtTime(velocity * 0.16, t0 + 0.003);
       tg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09);
 
       noise.connect(bp);
@@ -570,7 +581,7 @@ export class MotifAudioEngine {
     hp.frequency.value = 6800;
     const hg = ctx.createGain();
     hg.gain.setValueAtTime(0.0001, t0);
-    hg.gain.linearRampToValueAtTime(velocity * 0.13, t0 + 0.002);
+    hg.gain.linearRampToValueAtTime(velocity * 0.1, t0 + 0.002);
     hg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.055);
     hat.connect(hp);
     hp.connect(hg);

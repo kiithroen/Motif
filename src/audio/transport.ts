@@ -179,9 +179,21 @@ export class MotifTransport {
       for (const c of song.chords) {
         if (c.step === step) {
           if (this.chordInstrument === 'guitar') {
-            this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, c.velocity * 0.72, 0.22);
+            this.audio.playGuitar(
+              c.midi,
+              when + chordIdx * 0.011,
+              c.duration * stepDur,
+              Math.min(1, c.velocity * 0.92),
+              0.22
+            );
           } else {
-            this.audio.playPiano(c.midi, when + chordIdx * 0.006, c.duration * stepDur, c.velocity * 0.56, 0.2);
+            this.audio.playPiano(
+              c.midi,
+              when + chordIdx * 0.006,
+              c.duration * stepDur,
+              Math.min(1, c.velocity * 0.64),
+              0.2
+            );
           }
           chordIdx++;
         }
@@ -191,7 +203,7 @@ export class MotifTransport {
     if (!this.mutes.bass) {
       for (const b of song.bass) {
         if (b.step === step) {
-          this.audio.playBass(b.midi, when, b.duration * stepDur, b.velocity * 0.85);
+          this.audio.playBass(b.midi, when, b.duration * stepDur, Math.min(1, b.velocity * 0.96));
         }
       }
     }
@@ -199,7 +211,7 @@ export class MotifTransport {
     if (!this.mutes.drums) {
       for (const d of song.drums) {
         if (d.step === step) {
-          this.audio.playDrum(d.kind, when, d.velocity);
+          this.audio.playDrum(d.kind, when, Math.min(1, d.velocity * 1.05));
         }
       }
     }
