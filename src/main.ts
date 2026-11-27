@@ -1,10 +1,23 @@
 import './styles.css';
+import { CoachController } from './app/coachController';
+import { bindAppShortcuts } from './app/shortcuts';
 import {
-  loadGeminiSettings,
-  maskApiKey,
-  requestGeminiCoach,
-  saveGeminiSettings,
-} from './ai/geminiCoach';
+  type AppMode,
+  BASICS_STORAGE_KEY,
+  LESSON_STORAGE_KEY,
+  downloadMidi,
+  downloadTextFile,
+  loadInitialChordView,
+  loadInitialLibrary,
+  loadInitialMode,
+  loadProgress,
+  loadTrackVolumes,
+  saveChordView,
+  saveLibrary,
+  saveMode,
+  saveProgress,
+  saveTrackVolumes,
+} from './app/storage';
 import { MotifAudioEngine, type SampleLoadStatus } from './audio/instruments';
 import { MotifTransport, type TrackMuteState } from './audio/transport';
 import { analyzeSong } from './core/analyzer';
@@ -17,13 +30,6 @@ import {
   getBasicLessonById,
 } from './core/basics';
 import {
-  type CoachVisualDiff,
-  applyCoachPatch,
-  buildCoachVisualDiff,
-  describeCoachPatch,
-  trimCoachHistory,
-} from './core/coachPatch';
-import {
   bakeProjectMelody,
   compileSong,
   previewModifierDiff,
@@ -31,7 +37,6 @@ import {
 } from './core/compiler';
 import { ProjectHistory } from './core/history';
 import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
-import { exportToMidi } from './core/midi';
 import {
   type ChordInstrument,
   type MelodyInstrument,
@@ -43,7 +48,6 @@ import {
   cloneProject,
 } from './core/model';
 import {
-  type SongLibraryState,
   buildBackupFilename,
   createSongSlot,
   deleteSongSlot,
@@ -51,7 +55,6 @@ import {
   getActiveSlot,
   importBackupIntoLibrary,
   renameSongSlot,
-  sanitizeLibraryState,
   selectSongSlot,
   serializeLibraryBackup,
   serializeSongBackup,
@@ -67,190 +70,15 @@ import {
   createDefaultTrackMutes,
   createDefaultTrackVolumes,
   normalizeLoopRange,
-  sanitizeTrackVolumes,
   toggleMetronomeManual,
 } from './core/playbackControl';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
-import { type GeminiCoachUiState, renderCoachPanel } from './ui/coachPanel';
+import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { type ProjectChangeOptions, renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
 import { type SongLibraryUiState, renderSongLibraryBar } from './ui/songLibraryBar';
-
-const STORAGE_KEY = 'motif_project_v1';
-const LIBRARY_STORAGE_KEY = 'motif_library_v1';
-const LESSON_STORAGE_KEY = 'motif_lessons_v1';
-const BASICS_STORAGE_KEY = 'motif_basics_v1';
-const MODE_STORAGE_KEY = 'motif_mode_v1';
-const CHORD_VIEW_STORAGE_KEY = 'motif_chord_view_v1';
-const MIXER_VOLUMES_STORAGE_KEY = 'motif_mixer_volumes_v1';
-
-type AppMode = 'basics' | 'lesson' | 'free';
-
-interface ProgressStore {
-  completedIds: string[];
-  activeLessonId: string;
-}
-
-const PC_KEYBOARD_NOTES: Record<string, number> = {
-  a: 60, // C4
-  w: 61,
-  s: 62,
-  e: 63,
-  d: 64,
-  f: 65,
-  t: 66,
-  g: 67,
-  y: 68,
-  h: 69,
-  u: 70,
-  j: 71,
-  k: 72, // C5
-};
-
-function loadInitialMode(): AppMode {
-  try {
-    const raw = localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === 'basics' || raw === 'lesson' || raw === 'free') return raw;
-  } catch {
-    // 저장 불가 환경은 기본 모드로 시작한다.
-  }
-  return 'basics';
-}
-
-function saveMode(mode: AppMode): void {
-  try {
-    localStorage.setItem(MODE_STORAGE_KEY, mode);
-  } catch {
-    // 저장 불가 환경은 건너뛴다.
-  }
-}
-
-function loadInitialChordView(): ChordInstrument {
-  try {
-    const raw = localStorage.getItem(CHORD_VIEW_STORAGE_KEY);
-    if (raw === 'piano' || raw === 'guitar') return raw;
-  } catch {
-    // 저장 불가 환경은 건반 기본값으로 시작한다.
-  }
-  return 'piano';
-}
-
-function saveChordView(view: ChordInstrument): void {
-  try {
-    localStorage.setItem(CHORD_VIEW_STORAGE_KEY, view);
-  } catch {
-    // 저장 불가 환경은 건너뛴다.
-  }
-}
-
-function loadTrackVolumes(): TrackVolumes {
-  try {
-    const raw = localStorage.getItem(MIXER_VOLUMES_STORAGE_KEY);
-    if (raw) {
-      return sanitizeTrackVolumes(JSON.parse(raw) as Partial<Record<TrackKey, unknown>>);
-    }
-  } catch {
-    // 저장 데이터 파싱 실패 시 기본 볼륨으로 시작한다.
-  }
-  return createDefaultTrackVolumes();
-}
-
-function saveTrackVolumes(volumes: TrackVolumes): void {
-  try {
-    localStorage.setItem(MIXER_VOLUMES_STORAGE_KEY, JSON.stringify(volumes));
-  } catch {
-    // 저장 불가 환경은 건너뛴다.
-  }
-}
-
-function loadInitialLibrary(): SongLibraryState {
-  let rawLibrary: unknown = null;
-  let legacyProject: unknown = null;
-  try {
-    const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (raw) rawLibrary = JSON.parse(raw);
-  } catch {
-    // 저장 데이터 파싱 실패 시 레거시 또는 기본 라이브러리로 복구한다.
-  }
-  if (!rawLibrary) {
-    try {
-      const legacyRaw = localStorage.getItem(STORAGE_KEY);
-      if (legacyRaw) legacyProject = JSON.parse(legacyRaw);
-    } catch {
-      // 레거시 파싱 실패는 무시한다.
-    }
-  }
-  return sanitizeLibraryState(rawLibrary, legacyProject);
-}
-
-function saveLibrary(library: SongLibraryState): void {
-  try {
-    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(getActiveSlot(library).project));
-  } catch {
-    // 프라이빗 모드 등 저장 불가 환경은 조용히 건너뛴다.
-  }
-}
-
-function downloadTextFile(filename: string, content: string, mime: string): void {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function loadProgress(key: string, validList: Array<{ id: string }>): ProgressStore {
-  const validIds = new Set(validList.map((l) => l.id));
-  const fallbackId = validList[0].id;
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<ProgressStore>;
-      const completedIds = Array.isArray(parsed.completedIds)
-        ? parsed.completedIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))
-        : [];
-      const activeLessonId =
-        typeof parsed.activeLessonId === 'string' && validIds.has(parsed.activeLessonId)
-          ? parsed.activeLessonId
-          : fallbackId;
-      return { completedIds, activeLessonId };
-    }
-  } catch {
-    // 저장 데이터 파싱 실패 시 기본 진행도로 시작한다.
-  }
-  return { completedIds: [], activeLessonId: fallbackId };
-}
-
-function saveProgress(key: string, progress: ProgressStore): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(progress));
-  } catch {
-    // 저장 불가 환경은 조용히 건너뛴다.
-  }
-}
-
-function downloadMidi(project: SongProject, chordView: ChordInstrument): void {
-  const compiled = compileSong(project, chordView);
-  const bytes = exportToMidi(compiled, project, chordView);
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  const blob = new Blob([copy.buffer], { type: 'audio/midi' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `motif_${NOTE_NAMES_SHARP[project.keyRoot]}_${project.mode}.mid`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
 
 function init(): void {
   const root = document.getElementById('app');
@@ -289,22 +117,6 @@ function init(): void {
   let mixerOpen = false;
   let loopRange: LoopBarRange | null = null;
 
-  let geminiSettings = loadGeminiSettings();
-  let geminiAbort: AbortController | null = null;
-  const geminiUiState: GeminiCoachUiState = {
-    hasApiKey: Boolean(geminiSettings.apiKey),
-    maskedKey: maskApiKey(geminiSettings.apiKey),
-    selectedModel: geminiSettings.model,
-    settingsOpen: false,
-    promptDraft: '',
-    loading: false,
-    error: null,
-    suggestion: null,
-    activePreview: null,
-    history: [],
-    showVisualCompare: true,
-  };
-
   const audio = new MotifAudioEngine();
   const transport = new MotifTransport(audio, compiled, {
     onStep: (step) => {
@@ -318,15 +130,7 @@ function init(): void {
       updatePianoRollPlayhead(mainEl, activeStep, compiled.totalSteps);
     },
     onStop: () => {
-      if (geminiUiState.activePreview !== null) {
-        geminiUiState.activePreview = null;
-        coachEl
-          .querySelectorAll<HTMLButtonElement>('[data-gemini-preview]')
-          .forEach((btn) => btn.classList.remove('active'));
-        if (appMode !== 'basics') {
-          renderDynamicParts();
-        }
-      }
+      coachController.handleTransportStop(coachEl);
       renderTopControls();
       if (appMode === 'basics') {
         updateBasicsPlayButton(basicsRootEl, false);
@@ -398,28 +202,29 @@ function init(): void {
     return JSON.stringify(normalizedPrev) === JSON.stringify(next);
   }
 
-  function abortGeminiRequest(): void {
-    if (geminiAbort) {
-      geminiAbort.abort();
-      geminiAbort = null;
-    }
-    geminiUiState.loading = false;
-  }
-
-  function syncGeminiSettingsMeta(): void {
-    geminiUiState.hasApiKey = Boolean(geminiSettings.apiKey);
-    geminiUiState.maskedKey = maskApiKey(geminiSettings.apiKey);
-    geminiUiState.selectedModel = geminiSettings.model;
-  }
+  const coachController = new CoachController({
+    getProject: () => project,
+    getCompiled: () => compiled,
+    getChordView: () => chordView,
+    isBasicsMode: () => appMode === 'basics',
+    playOncePreview: (previewCompiled) => {
+      transport.playOncePreview(
+        previewCompiled,
+        project.bpm,
+        project.melodyInstrument,
+        mutes,
+        chordView
+      );
+    },
+    onApplyProject: (next) => updateState(next),
+    onRenderDynamicParts: () => renderDynamicParts(),
+    onRenderTopControls: () => renderTopControls(),
+    onRenderCoach: (report) => renderCoachSection(report),
+  });
 
   function loadWorkspaceProject(target: SongProject): void {
     transport.stop();
-    abortGeminiRequest();
-    geminiUiState.error = null;
-    geminiUiState.suggestion = null;
-    geminiUiState.activePreview = null;
-    geminiUiState.history = [];
-    geminiUiState.showVisualCompare = true;
+    coachController.resetForProjectLoad();
     history.clear();
     activeStep = -1;
     loopRange = null;
@@ -561,8 +366,7 @@ function init(): void {
     }
 
     if (!tabOnly && !recompileAudioOnly) {
-      geminiUiState.suggestion = null;
-      geminiUiState.activePreview = null;
+      coachController.invalidateSuggestion();
     }
 
     if (next.bars !== project.bars) {
@@ -943,7 +747,7 @@ function init(): void {
     });
 
     topbarEl.querySelector('#btn-midi')?.addEventListener('click', () => {
-      downloadMidi(project, chordView);
+      downloadMidi(compiled, project, chordView);
     });
   }
 
@@ -975,10 +779,11 @@ function init(): void {
 
     renderLayerEditor(mainEl, project, compiled, activeStep, {
       selectedDuration,
+      chordView,
       loopRange,
       preserveBakedOnChordChange,
-      coachCompare: geminiUiState.showVisualCompare ? (geminiUiState.suggestion?.visualDiff ?? null) : null,
-      coachCompareActive: geminiUiState.activePreview === 'after',
+      coachCompare: coachController.getVisualCompare(),
+      coachCompareActive: coachController.isComparePreviewActive(),
       onSelectDuration: (steps) => {
         selectedDuration = steps;
         renderDynamicParts();
@@ -991,11 +796,7 @@ function init(): void {
       onAuditionPitch: auditionPitch,
       onSeekBar: seekToBar,
       onLoopRangeChange: setLoopRange,
-      onDismissCoachCompare: () => {
-        geminiUiState.showVisualCompare = false;
-        renderDynamicParts();
-        renderCoachSection();
-      },
+      onDismissCoachCompare: () => coachController.dismissVisualCompare(),
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId, chordView);
         transport.playOncePreview(
@@ -1171,213 +972,13 @@ function init(): void {
     );
   }
 
-  async function runGeminiCoachRequest(mode: 'explain' | 'request', promptText?: string): Promise<void> {
-    if (!geminiSettings.apiKey.trim()) {
-      if (mode === 'request' && promptText) {
-        geminiUiState.promptDraft = promptText;
-      }
-      geminiUiState.settingsOpen = true;
-      geminiUiState.error = '먼저 Gemini API 키를 입력하고 저장해 주세요.';
-      renderCoachSection();
-      return;
-    }
-
-    const trimmedPrompt = (promptText ?? '').trim();
-    if (mode === 'request') {
-      if (!trimmedPrompt) {
-        geminiUiState.error = '원하는 분위기나 수정 요청을 입력해 주세요.';
-        renderCoachSection();
-        return;
-      }
-      geminiUiState.promptDraft = trimmedPrompt;
-    }
-
-    abortGeminiRequest();
-    const controller = new AbortController();
-    geminiAbort = controller;
-    geminiUiState.loading = true;
-    geminiUiState.error = null;
-    geminiUiState.activePreview = null;
-    renderCoachSection();
-
-    const baseSnapshot = cloneProject(project);
-    const baseCompiled = compileSong(baseSnapshot, chordView);
-    const baseReport = analyzeSong(baseCompiled, baseSnapshot);
-
-    try {
-      const res = await requestGeminiCoach({
-        settings: geminiSettings,
-        mode,
-        userRequest: trimmedPrompt,
-        history: geminiUiState.history,
-        project: baseSnapshot,
-        compiled: baseCompiled,
-        report: baseReport,
-        signal: controller.signal,
-      });
-
-      if (geminiAbort !== controller) return;
-
-      let demoProject: SongProject | undefined;
-      let changeDescriptions: string[] = [];
-      let visualDiff: CoachVisualDiff | undefined;
-      if (res.response.patch) {
-        const candidate = applyCoachPatch(baseSnapshot, res.response.patch);
-        changeDescriptions = describeCoachPatch(baseSnapshot, candidate, res.response.patch);
-        if (changeDescriptions.length > 0) {
-          demoProject = candidate;
-          const demoCompiled = compileSong(candidate, chordView);
-          visualDiff = buildCoachVisualDiff(baseCompiled, demoCompiled, res.response.patch);
-        }
-      }
-
-      geminiUiState.showVisualCompare = true;
-      geminiUiState.suggestion = {
-        headline: res.response.headline,
-        explanation: res.response.explanation,
-        theoryTip: res.response.theoryTip,
-        manualSteps: res.response.manualSteps ?? [],
-        patchSummary: res.response.patchSummary,
-        changeDescriptions,
-        warnings: res.warnings,
-        demoProject,
-        visualDiff,
-        hasHarmonyDemo: Boolean(
-          res.response.patch?.chords?.length || res.response.patch?.modifiers?.length
-        ),
-        hasMelodyDemo: Boolean(res.response.patch?.melodyBars?.length),
-      };
-      geminiUiState.history = trimCoachHistory([
-        ...geminiUiState.history,
-        {
-          mode,
-          userPrompt: mode === 'explain' ? '현재 분석 리포트 쉽게 풀기' : trimmedPrompt,
-          assistantHeadline: res.response.headline,
-          assistantExplanation: res.response.explanation,
-          patchSummary: res.response.patchSummary,
-        },
-      ]);
-      if (mode === 'request') {
-        geminiUiState.promptDraft = '';
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
-      if (geminiAbort !== controller) return;
-      geminiUiState.error = err instanceof Error ? err.message : 'Gemini 요청 중 오류가 발생했다.';
-    } finally {
-      if (geminiAbort === controller) {
-        geminiAbort = null;
-        geminiUiState.loading = false;
-        if (appMode !== 'basics') {
-          renderDynamicParts();
-        }
-        renderCoachSection();
-      }
-    }
-  }
-
   function renderCoachSection(report = analyzeSong(compiled, project)): void {
-    renderCoachPanel(coachEl, report, geminiUiState, {
-      onPreviewIssueFix: (issue) => {
-        const previewProj = issue.applyFix(project);
-        const previewCompiled = compileSong(previewProj, chordView);
-        geminiUiState.activePreview = null;
-        transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes, chordView);
-        renderTopControls();
-      },
-      onApplyIssueFix: (issue) => {
-        const fixed = issue.applyFix(project);
-        fixed.activeLayer = 'L3';
-        updateState(fixed);
-      },
-      onToggleGeminiSettings: () => {
-        geminiUiState.settingsOpen = !geminiUiState.settingsOpen;
-        renderCoachSection();
-      },
-      onSaveGeminiSettings: (apiKey, model) => {
-        const nextKey = apiKey.trim() || geminiSettings.apiKey;
-        geminiSettings = {
-          ...geminiSettings,
-          apiKey: nextKey,
-          model,
-        };
-        saveGeminiSettings(geminiSettings);
-        syncGeminiSettingsMeta();
-        geminiUiState.error = null;
-        if (geminiSettings.apiKey) {
-          geminiUiState.settingsOpen = false;
-        }
-        renderCoachSection();
-      },
-      onClearGeminiKey: () => {
-        geminiSettings = { ...geminiSettings, apiKey: '' };
-        saveGeminiSettings(geminiSettings);
-        syncGeminiSettingsMeta();
-        geminiUiState.error = null;
-        renderCoachSection();
-      },
-      onPromptChange: (draft) => {
-        geminiUiState.promptDraft = draft;
-      },
-      onExplainReport: () => {
-        void runGeminiCoachRequest('explain');
-      },
-      onSubmitPrompt: (prompt) => {
-        void runGeminiCoachRequest('request', prompt);
-      },
-      onCancelGemini: () => {
-        abortGeminiRequest();
-        renderCoachSection();
-      },
-      onPreviewGeminiPatch: (after) => {
-        const sug = geminiUiState.suggestion;
-        if (!sug?.demoProject) return;
-        if (after) {
-          const previewCompiled = compileSong(sug.demoProject, chordView);
-          geminiUiState.activePreview = 'after';
-          geminiUiState.showVisualCompare = true;
-          transport.playOncePreview(
-            previewCompiled,
-            project.bpm,
-            project.melodyInstrument,
-            mutes,
-            chordView
-          );
-        } else {
-          geminiUiState.activePreview = 'before';
-          transport.playOncePreview(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
-        }
-        renderDynamicParts();
-        renderCoachSection();
-        renderTopControls();
-      },
-      onOpenManualEditLayer: (layer) => {
-        if (project.activeLayer === layer) return;
-        const next = cloneProject(project);
-        next.activeLayer = layer;
-        updateState(next);
-      },
-      onDismissGeminiSuggestion: () => {
-        geminiUiState.suggestion = null;
-        geminiUiState.activePreview = null;
-        renderDynamicParts();
-        renderCoachSection();
-      },
-      onClearGeminiHistory: () => {
-        abortGeminiRequest();
-        geminiUiState.history = [];
-        geminiUiState.suggestion = null;
-        geminiUiState.activePreview = null;
-        geminiUiState.error = null;
-        renderDynamicParts();
-        renderCoachSection();
-      },
-      onToggleVisualCompare: () => {
-        geminiUiState.showVisualCompare = !geminiUiState.showVisualCompare;
-        renderDynamicParts();
-        renderCoachSection();
-      },
-    });
+    renderCoachPanel(
+      coachEl,
+      report,
+      coachController.getUiState(),
+      coachController.createCallbacks()
+    );
   }
 
   function renderSongLibrarySection(): void {
@@ -1560,36 +1161,14 @@ function init(): void {
     renderCoachSection(report);
   }
 
-  window.addEventListener('keydown', (e) => {
-    const isMapScreen =
+  bindAppShortcuts({
+    isBlocked: () =>
       (appMode === 'basics' && basicsScreen === 'map') ||
-      (appMode === 'lesson' && lessonScreen === 'map');
-    if (isMapScreen) return;
-    const target = e.target as HTMLElement | null;
-    const tag = target?.tagName;
-    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-      const key = e.key.toLowerCase();
-      if (key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        performUndo();
-        return;
-      }
-      if (key === 'y' || (key === 'z' && e.shiftKey)) {
-        e.preventDefault();
-        performRedo();
-        return;
-      }
-    }
-    if (e.code === 'Space') {
-      e.preventDefault();
-      togglePlayback();
-      return;
-    }
-    const midi = PC_KEYBOARD_NOTES[e.key.toLowerCase()];
-    if (midi && !e.repeat) {
-      auditionPitch(midi);
-    }
+      (appMode === 'lesson' && lessonScreen === 'map'),
+    onUndo: performUndo,
+    onRedo: performRedo,
+    onTogglePlayback: togglePlayback,
+    onAuditionPitch: auditionPitch,
   });
 
   renderAll();

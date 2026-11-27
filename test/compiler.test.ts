@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   bakeProjectMelody,
+  clearPreviewCache,
   compileSong,
+  getPreviewCacheStats,
   previewModifierDiff,
   unpackBlocksToChain,
 } from '../src/core/compiler';
@@ -72,5 +74,75 @@ describe('3-tier song compiler', () => {
       expect(bar0PianoSteps).toEqual(expectedPianoSteps);
       expect(bar0GuitarSteps).toEqual(expectedGuitarSteps);
     }
+  });
+
+  it('caches modifier diffs without diverging from direct compileSong output', () => {
+    clearPreviewCache();
+    const base = createDefaultProject();
+    base.bars = 8;
+    base.chain = unpackBlocksToChain(base.blocks, 8);
+    // 일부 변형을 미리 켜 둔 상태와 끈 상태 모두 검증한다.
+    base.chain.modifiers = base.chain.modifiers.map((m, i) => ({
+      ...m,
+      enabled: i % 2 === 0,
+    }));
+
+    for (const meta of PRESETS.modifiers) {
+      const diff = previewModifierDiff(base, meta.id, 'guitar');
+
+      const offProj = {
+        ...base,
+        baked: false,
+        chain: {
+          ...base.chain,
+          modifiers: base.chain.modifiers.map((m) =>
+            m.id === meta.id ? { ...m, enabled: false } : { ...m }
+          ),
+        },
+      };
+      const onProj = {
+        ...base,
+        baked: false,
+        chain: {
+          ...base.chain,
+          modifiers: base.chain.modifiers.map((m) =>
+            m.id === meta.id ? { ...m, enabled: true } : { ...m }
+          ),
+        },
+      };
+
+      const directBefore = compileSong(offProj, 'guitar');
+      const directAfter = compileSong(onProj, 'guitar');
+
+      expect(diff.before.melody).toEqual(directBefore.melody);
+      expect(diff.after.melody).toEqual(directAfter.melody);
+      expect(diff.before.resolvedChords).toEqual(directBefore.resolvedChords);
+      expect(diff.after.resolvedChords).toEqual(directAfter.resolvedChords);
+    }
+
+    const afterFirstPass = getPreviewCacheStats();
+    expect(afterFirstPass.misses).toBe(PRESETS.modifiers.length);
+    // 기준 1회 + modal_borrow 반대 상태 1회만 full compile 된다.
+    expect(afterFirstPass.fullCompiles).toBe(2);
+
+    // 동일 상태 및 캐시 무관 필드(bpm/activeLayer/baked)만 바꾼 반복 호출은 전부 히트한다.
+    const sameWithUiOnlyChange = {
+      ...base,
+      bpm: base.bpm + 12,
+      activeLayer: 'L3' as const,
+      baked: true,
+    };
+    for (const meta of PRESETS.modifiers) {
+      previewModifierDiff(sameWithUiOnlyChange, meta.id, 'guitar');
+    }
+    const afterHits = getPreviewCacheStats();
+    expect(afterHits.hits).toBe(PRESETS.modifiers.length);
+    expect(afterHits.misses).toBe(afterFirstPass.misses);
+    expect(afterHits.fullCompiles).toBe(afterFirstPass.fullCompiles);
+
+    // seed 변경 시 캐시 키가 달라져 미스가 발생한다.
+    const nextSeed = { ...base, seed: base.seed + 1 };
+    previewModifierDiff(nextSeed, PRESETS.modifiers[0].id, 'guitar');
+    expect(getPreviewCacheStats().misses).toBe(afterFirstPass.misses + 1);
   });
 });

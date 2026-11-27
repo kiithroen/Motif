@@ -1,6 +1,13 @@
 import type { CoachVisualDiff } from '../core/coachPatch';
 import { type CompiledSong, previewModifierDiff } from '../core/compiler';
-import { PRESETS, type ModifierId, type NoteEvent, type SongProject, cloneProject } from '../core/model';
+import {
+  PRESETS,
+  type ChordInstrument,
+  type ModifierId,
+  type NoteEvent,
+  type SongProject,
+  cloneProject,
+} from '../core/model';
 import {
   addPianoRollNote,
   computeMaxResizeDuration,
@@ -33,6 +40,7 @@ export interface ProjectChangeOptions {
 
 export interface LayerCallbacks {
   selectedDuration: number;
+  chordView?: ChordInstrument;
   loopRange?: LoopBarRange | null;
   preserveBakedOnChordChange?: boolean;
   coachCompare?: CoachVisualDiff | null;
@@ -190,7 +198,9 @@ export function renderLayerEditor(
   }
 
   if (layer === 'L2') {
-    container.innerHTML = tabsHtml + renderL2Body(project, compiled, preserveBakedOnChordChange);
+    const chordView = callbacks.chordView ?? 'piano';
+    container.innerHTML =
+      tabsHtml + renderL2Body(project, compiled, preserveBakedOnChordChange, chordView);
     wireTabs(container, project, callbacks);
     wireL2Events(container, project, callbacks, preserveBakedOnChordChange);
     return;
@@ -379,7 +389,8 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
 function renderL2Body(
   project: SongProject,
   compiled: CompiledSong,
-  preserveBakedOnChordChange: boolean
+  preserveBakedOnChordChange: boolean,
+  chordView: ChordInstrument = 'piano'
 ): string {
   const hasBakedMelody = project.baked && project.bakedMelody.length > 0;
   const bakedGuardHtml = hasBakedMelody
@@ -424,7 +435,7 @@ function renderL2Body(
         enabled: false,
         amount: 0.7,
       };
-      const diff = previewModifierDiff(project, meta.id);
+      const diff = previewModifierDiff(project, meta.id, chordView);
       const changed = diff.changedCount + diff.addedCount + diff.removedCount;
       return `
         <div class="mod-card${state.enabled ? ' enabled' : ''}">

@@ -13,11 +13,9 @@
 - **재생 제어 및 믹서 고도화 완료:** 피아노롤 마디 헤더 클릭 Seek, `↻` 버튼·Shift 확장·헤더 드래그 기반 마디 구간 반복 및 SVG 하이라이트, 드럼 음소거 연동 자동 메트로놈 클릭과 수동 토글, 트랙별(멜로디·코드·베이스·드럼) 볼륨 믹서를 반영했다.
 - **L3 비파괴 보호 및 편집 편의성 개선 완료:** L2 마디 코드 변경 시 L3 수동 편집 멜로디(`bakedMelody`) 유지 옵션과 덮어쓰기 초기화, 드래그·리사이즈 중 `getBoundingClientRect()` 재계산 스크롤 보정, 16분(1칸)·점4분(6칸) 음표 길이 옵션 추가, 단순 클릭(선택·미리듣기)과 삭제(더블클릭·우클릭·Delete/Backspace) 분리를 반영했다.
 - **다중 곡 슬롯 및 JSON 백업 완료:** 자유 스케치 프로젝트를 최대 슬롯 한도 내에서 생성·복제·이름 변경·2단계 삭제·드로어 목록 전환으로 관리하고(`src/core/projectLibrary.ts`, `src/ui/songLibraryBar.ts`), 단일 곡(`motif-song`)·전체 라이브러리(`motif-library`)·단일 프로젝트 JSON 내보내기/불러오기 및 기존 단일 프로젝트(`motif_project_v1`) 자동 마이그레이션을 반영했다.
+- **구조·성능 리팩토링 완료:** `src/core/compiler.ts`의 `previewModifierDiff`에 기준 컴파일 재사용 및 bounded 캐싱을 적용해 L2 변형 카드 렌더링과 전/후 비교 미리듣기의 중복 컴파일을 줄였고, `src/main.ts`의 저장소·파일 다운로드(`src/app/storage.ts`), 키보드 단축키(`src/app/shortcuts.ts`), Gemini/로컬 이론 코치 제어(`src/app/coachController.ts`) 책임을 분리했다.
 
 ## 다음 작업
-
-### 구조·성능 리팩토링
-- L2 변형 카드 렌더링 시 중복 `compileSong` 호출을 캐싱으로 줄이고, `src/main.ts`의 저장소·단축키·튜터 컨트롤러 책임을 분리한다.
 
 ### 모바일·데스크톱 포팅 (예정)
 - 필요 시 Capacitor 기반 Android/데스크톱 패키징을 검토한다.

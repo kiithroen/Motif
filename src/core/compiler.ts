@@ -45,6 +45,65 @@ export interface ModifierDiff {
   after: CompiledSong;
 }
 
+export interface PreviewCacheStats {
+  hits: number;
+  misses: number;
+  fullCompiles: number;
+  entryCount: number;
+}
+
+interface PreviewCacheEntry {
+  unbakedCompiled: CompiledSong;
+  baseMelody: NoteEvent[];
+  diffs: Map<ModifierId, ModifierDiff>;
+}
+
+const MAX_PREVIEW_CACHE_ENTRIES = 16;
+const previewCache = new Map<string, PreviewCacheEntry>();
+let previewCacheStats = {
+  hits: 0,
+  misses: 0,
+  fullCompiles: 0,
+};
+
+export function getPreviewCacheStats(): PreviewCacheStats {
+  return {
+    hits: previewCacheStats.hits,
+    misses: previewCacheStats.misses,
+    fullCompiles: previewCacheStats.fullCompiles,
+    entryCount: previewCache.size,
+  };
+}
+
+export function clearPreviewCache(): void {
+  previewCache.clear();
+  previewCacheStats = {
+    hits: 0,
+    misses: 0,
+    fullCompiles: 0,
+  };
+}
+
+function buildModifierPreviewKey(
+  project: SongProject,
+  chordInstrument: ChordInstrument
+): string {
+  return JSON.stringify([
+    chordInstrument,
+    project.keyRoot,
+    project.mode,
+    project.bars,
+    project.seed,
+    project.blocks.progressionId,
+    project.blocks.grooveId,
+    project.blocks.contourId,
+    project.blocks.energy,
+    project.blocks.density,
+    project.chain.chords.slice(0, project.bars).map((c) => c.degree),
+    project.chain.modifiers.map((m) => [m.id, m.enabled, m.amount]),
+  ]);
+}
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -383,6 +442,21 @@ function compileAccompaniment(
   return { chords, bass, drums };
 }
 
+function annotateMelody(
+  rawMelody: NoteEvent[],
+  resolvedChords: ResolvedChord[],
+  project: SongProject
+): AnnotatedMelodyNote[] {
+  return rawMelody.map((n) => {
+    const bar = Math.min(resolvedChords.length - 1, Math.floor(n.step / 16));
+    const rc = resolvedChords[bar];
+    return {
+      ...n,
+      role: classifyPitch(n.midi, rc, project.keyRoot, project.mode, n.step % 16, n.duration),
+    };
+  });
+}
+
 export function compileSong(
   project: SongProject,
   chordInstrument: ChordInstrument = 'piano'
@@ -399,14 +473,7 @@ export function compileSong(
       )
     : applyModifierPipeline(generateBaseMelody(project, resolvedChords), project, resolvedChords);
 
-  const melody: AnnotatedMelodyNote[] = rawMelody.map((n) => {
-    const bar = Math.min(resolvedChords.length - 1, Math.floor(n.step / 16));
-    const rc = resolvedChords[bar];
-    return {
-      ...n,
-      role: classifyPitch(n.midi, rc, project.keyRoot, project.mode, n.step % 16, n.duration),
-    };
-  });
+  const melody = annotateMelody(rawMelody, resolvedChords, project);
 
   return {
     bars: project.bars,
@@ -428,25 +495,120 @@ export function bakeProjectMelody(project: SongProject): SongProject {
   return next;
 }
 
+function createPreviewCacheEntry(
+  project: SongProject,
+  chordInstrument: ChordInstrument
+): PreviewCacheEntry {
+  const unbakedProject = cloneProject(project);
+  unbakedProject.baked = false;
+  const totalSteps = unbakedProject.bars * 16;
+  const slots = effectiveChordSlots(unbakedProject);
+  const resolvedChords = slots.map((s) =>
+    resolveChord(s.degree, unbakedProject.keyRoot, unbakedProject.mode)
+  );
+  const { chords, bass, drums } = compileAccompaniment(
+    unbakedProject,
+    resolvedChords,
+    chordInstrument
+  );
+  const baseMelody = generateBaseMelody(unbakedProject, resolvedChords);
+  const rawMelody = applyModifierPipeline(baseMelody, unbakedProject, resolvedChords);
+  const melody = annotateMelody(rawMelody, resolvedChords, unbakedProject);
+  previewCacheStats.fullCompiles += 1;
+
+  return {
+    unbakedCompiled: {
+      bars: unbakedProject.bars,
+      totalSteps,
+      resolvedChords,
+      chords,
+      bass,
+      drums,
+      melody,
+    },
+    baseMelody,
+    diffs: new Map(),
+  };
+}
+
+function getOrCreatePreviewCacheEntry(
+  key: string,
+  project: SongProject,
+  chordInstrument: ChordInstrument
+): PreviewCacheEntry {
+  const existing = previewCache.get(key);
+  if (existing) {
+    return existing;
+  }
+  if (previewCache.size >= MAX_PREVIEW_CACHE_ENTRIES) {
+    const oldestKey = previewCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      previewCache.delete(oldestKey);
+    }
+  }
+  const entry = createPreviewCacheEntry(project, chordInstrument);
+  previewCache.set(key, entry);
+  return entry;
+}
+
+function compileAlternateModifierState(
+  entry: PreviewCacheEntry,
+  project: SongProject,
+  modifierId: ModifierId,
+  targetEnabled: boolean,
+  chordInstrument: ChordInstrument
+): CompiledSong {
+  const altProj = cloneProject(project);
+  altProj.baked = false;
+  altProj.chain.modifiers = altProj.chain.modifiers.map((m) =>
+    m.id === modifierId ? { ...m, enabled: targetEnabled } : m
+  );
+
+  if (modifierId === 'modal_borrow') {
+    previewCacheStats.fullCompiles += 1;
+    return compileSong(altProj, chordInstrument);
+  }
+
+  const rawMelody = applyModifierPipeline(
+    entry.baseMelody,
+    altProj,
+    entry.unbakedCompiled.resolvedChords
+  );
+  const melody = annotateMelody(rawMelody, entry.unbakedCompiled.resolvedChords, altProj);
+  return {
+    ...entry.unbakedCompiled,
+    melody,
+  };
+}
+
 export function previewModifierDiff(
   project: SongProject,
   modifierId: ModifierId,
   chordInstrument: ChordInstrument = 'piano'
 ): ModifierDiff {
-  const offProj = cloneProject(project);
-  offProj.baked = false;
-  offProj.chain.modifiers = offProj.chain.modifiers.map((m) =>
-    m.id === modifierId ? { ...m, enabled: false } : m
-  );
+  const key = buildModifierPreviewKey(project, chordInstrument);
+  const entry = getOrCreatePreviewCacheEntry(key, project, chordInstrument);
+  const cachedDiff = entry.diffs.get(modifierId);
+  if (cachedDiff) {
+    previewCacheStats.hits += 1;
+    return cachedDiff;
+  }
 
-  const onProj = cloneProject(project);
-  onProj.baked = false;
-  onProj.chain.modifiers = onProj.chain.modifiers.map((m) =>
-    m.id === modifierId ? { ...m, enabled: true } : m
-  );
+  previewCacheStats.misses += 1;
+  const currentModifier = project.chain.modifiers.find((m) => m.id === modifierId);
+  let before: CompiledSong;
+  let after: CompiledSong;
 
-  const before = compileSong(offProj, chordInstrument);
-  const after = compileSong(onProj, chordInstrument);
+  if (!currentModifier) {
+    before = entry.unbakedCompiled;
+    after = entry.unbakedCompiled;
+  } else if (currentModifier.enabled) {
+    after = entry.unbakedCompiled;
+    before = compileAlternateModifierState(entry, project, modifierId, false, chordInstrument);
+  } else {
+    before = entry.unbakedCompiled;
+    after = compileAlternateModifierState(entry, project, modifierId, true, chordInstrument);
+  }
 
   const beforeMap = new Map(before.melody.map((n) => [n.step, `${n.midi}:${n.duration}`]));
   const afterMap = new Map(after.melody.map((n) => [n.step, `${n.midi}:${n.duration}`]));
@@ -464,5 +626,7 @@ export function previewModifierDiff(
     if (!afterMap.has(step)) removedCount++;
   }
 
-  return { modifierId, changedCount, addedCount, removedCount, before, after };
+  const diff: ModifierDiff = { modifierId, changedCount, addedCount, removedCount, before, after };
+  entry.diffs.set(modifierId, diff);
+  return diff;
 }
