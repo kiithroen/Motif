@@ -1145,4 +1145,46 @@ describe('L3 PianoRoll pointer interactions', () => {
     jumpBtns[2].click(); // 9~12 (startBar = 8)
     expect(scrollEl.scrollLeft).toBeGreaterThan(0);
   });
+
+  it('switches L3 tracks (chords, bass, drums) and edits drum sequencer and polyphonic notes', () => {
+    const project = makeTestProject();
+    let compiled = compileSong(project);
+    const onProjectChange = vi.fn((next: SongProject) => {
+      Object.assign(project, next);
+      compiled = compileSong(project);
+    });
+    const onAuditionDrum = vi.fn();
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onAuditionDrum,
+      onPreviewModifier: vi.fn(),
+    });
+
+    // 트랙 탭 4개 확인
+    expect(container.querySelectorAll('[data-l3-track]').length).toBe(4);
+
+    // 폴리포니: 기존 n_1(step 0, midi 72)과 같은 스텝에 다른 음(midi 76)을 추가해도 n_1이 유지된다.
+    const svg = container.querySelector<SVGSVGElement>('.pr-svg')!;
+    stubSvgRect(svg);
+    const step0Row76Y = 50 + (PR_MAX_MIDI - 76) * ROW_H + 10;
+    svg.dispatchEvent(pointerEvent('pointerdown', 110, step0Row76Y));
+    window.dispatchEvent(pointerEvent('pointerup', 110, step0Row76Y));
+    expect(project.bakedMelody.filter((n) => n.step === 0).length).toBe(2);
+
+    // 드럼 시퀀서 탭으로 전환해 클랩 스텝 토글 및 필인 활성화
+    container.querySelector<HTMLButtonElement>('[data-l3-track="drums"]')!.click();
+    expect(container.querySelector('.drum-seq-wrap')).not.toBeNull();
+    container.querySelector<HTMLButtonElement>('[data-drum-kind="clap"][data-drum-step="4"]')!.click();
+    expect(project.customDrums?.claps).toContain(4);
+    expect(onAuditionDrum).toHaveBeenCalledWith('clap');
+
+    const fillChk = container.querySelector<HTMLInputElement>('#chk-drum-fill')!;
+    fillChk.checked = true;
+    fillChk.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(project.customDrums?.fillEnabled).toBe(true);
+  });
 });

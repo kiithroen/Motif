@@ -8,6 +8,7 @@ const DRUM_NOTE: Record<DrumKind, number> = {
   kick: 36,
   snare: 38,
   hat: 42,
+  clap: 39,
 };
 
 function writeVarLen(value: number): number[] {

@@ -1,6 +1,7 @@
 import type { CoachVisualDiff } from '../core/coachPatch';
 import {
   type CompiledSong,
+  buildDefaultDrumPattern,
   duplicateAToBWithVariation,
   previewModifierDiff,
   resolveChordAtStep,
@@ -8,6 +9,8 @@ import {
 import {
   PRESETS,
   type ChordInstrument,
+  type DrumKind,
+  type DrumStepPattern,
   type ModifierId,
   type NoteEvent,
   type SongProject,
@@ -65,6 +68,7 @@ export interface LayerCallbacks {
   onTogglePreserveBaked?: (preserve: boolean) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
+  onAuditionDrum?: (kind: DrumKind) => void;
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
   onSeekBar?: (barIdx: number) => void;
   onLoopRangeChange?: (range: LoopBarRange | null) => void;
@@ -81,6 +85,7 @@ function escapeHtml(text: string): string {
 }
 
 export type PianoRollToolMode = 'draw' | 'select';
+export type L3EditTrack = 'melody' | 'chords' | 'bass' | 'drums';
 
 interface PianoRollMetrics {
   minMidi: number;
@@ -95,6 +100,7 @@ interface PianoRollMetrics {
 let containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
 let containerToolModeMap = new WeakMap<HTMLElement, PianoRollToolMode>();
 let containerZoomMap = new WeakMap<HTMLElement, string>();
+let containerL3TrackMap = new WeakMap<HTMLElement, L3EditTrack>();
 type L2SectionTab = 'all' | 'A' | 'B';
 let containerSectionTabMap = new WeakMap<HTMLElement, L2SectionTab>();
 const activeKeyHandlers = new Map<HTMLElement, (e: KeyboardEvent) => void>();
@@ -123,16 +129,32 @@ function getZoomId(container: HTMLElement): string {
     : PRESETS.pianoRoll.defaultDesktopZoomId;
 }
 
-function resolvePianoRollMetrics(zoomId: string, coarse = isCoarsePointer()): PianoRollMetrics {
+function getL3Track(container: HTMLElement): L3EditTrack {
+  return containerL3TrackMap.get(container) ?? 'melody';
+}
+
+function getTrackPitchBounds(track: L3EditTrack): { minMidi: number; maxMidi: number } {
+  const cfg = PRESETS.pianoRoll;
+  if (track === 'bass') return { minMidi: 24, maxMidi: 60 };
+  if (track === 'chords') return { minMidi: 36, maxMidi: 84 };
+  return { minMidi: cfg.minMidi, maxMidi: cfg.maxMidi };
+}
+
+function resolvePianoRollMetrics(
+  zoomId: string,
+  coarse = isCoarsePointer(),
+  track: L3EditTrack = 'melody'
+): PianoRollMetrics {
   const cfg = PRESETS.pianoRoll;
   const matched =
     cfg.zoomLevels.find((z) => z.id === zoomId) ??
     cfg.zoomLevels.find((z) => z.id === cfg.defaultDesktopZoomId) ??
     cfg.zoomLevels[0];
   const scale = matched?.scale ?? 1;
+  const bounds = getTrackPitchBounds(track);
   return {
-    minMidi: cfg.minMidi,
-    maxMidi: cfg.maxMidi,
+    minMidi: bounds.minMidi,
+    maxMidi: bounds.maxMidi,
     stepW: Math.max(8, Math.round(cfg.baseStepWidth * scale)),
     rowH: Math.max(12, Math.round(cfg.baseRowHeight * scale)),
     zoomId: matched?.id ?? zoomId,
@@ -154,10 +176,23 @@ function getSelectionSet(container: HTMLElement): Set<string> {
   return set;
 }
 
-function pruneSelectionForMelody(container: HTMLElement, compiled: CompiledSong): Set<string> {
+function getTrackNotesFromCompiled(
+  compiled: CompiledSong,
+  track: L3EditTrack
+): Array<NoteEvent & { role?: HarmonicRole }> {
+  if (track === 'chords') return compiled.chords;
+  if (track === 'bass') return compiled.bass;
+  return compiled.melody;
+}
+
+function pruneSelectionForTrack(
+  container: HTMLElement,
+  compiled: CompiledSong,
+  track: L3EditTrack = 'melody'
+): Set<string> {
   const sel = getSelectionSet(container);
   if (sel.size === 0) return sel;
-  const validIds = new Set(compiled.melody.map((n) => n.id));
+  const validIds = new Set(getTrackNotesFromCompiled(compiled, track).map((n) => n.id));
   for (const id of sel) {
     if (!validIds.has(id)) sel.delete(id);
   }
@@ -265,7 +300,7 @@ export function renderFocusedPianoRoll(
   options: FocusedPianoRollOptions
 ): void {
   const prevScrollLeft = container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0;
-  const selectedIds = pruneSelectionForMelody(container, compiled);
+  const selectedIds = pruneSelectionForTrack(container, compiled, 'melody');
   const toolMode = getToolMode(container);
   const metrics = resolvePianoRollMetrics(getZoomId(container));
   container.innerHTML = renderL3Body(project, compiled, activeStep, options.selectedDuration, {
@@ -356,12 +391,15 @@ export function renderLayerEditor(
     return;
   }
 
-  const selectedIds = pruneSelectionForMelody(container, compiled);
+  const activeTrack = getL3Track(container);
+  const selectedIds = pruneSelectionForTrack(container, compiled, activeTrack);
   const toolMode = getToolMode(container);
-  const metrics = resolvePianoRollMetrics(getZoomId(container));
+  const metrics = resolvePianoRollMetrics(getZoomId(container), undefined, activeTrack);
   container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration, {
     showDurationPicker: true,
+    showTrackTabs: true,
     showUnbake: false,
+    track: activeTrack,
     loopRange: callbacks.loopRange,
     coachCompare: callbacks.coachCompare,
     coachCompareActive: callbacks.coachCompareActive,
@@ -994,6 +1032,109 @@ function computeLiveRole(
   return rc ? classifyPitch(midi, rc, project.keyRoot, project.mode, step % 16, duration) : 'passing';
 }
 
+function renderL3TrackTabs(activeTrack: L3EditTrack, project: SongProject): string {
+  const items: Array<{ id: L3EditTrack; label: string; edited: boolean }> = [
+    { id: 'melody', label: '멜로디', edited: project.baked && project.bakedMelody.length > 0 },
+    { id: 'chords', label: '코드 반주', edited: Boolean(project.bakedChords) },
+    { id: 'bass', label: '베이스', edited: Boolean(project.bakedBass) },
+    { id: 'drums', label: '드럼 시퀀서', edited: Boolean(project.customDrums) },
+  ];
+  return `
+    <div class="pr-track-tabs" role="tablist" aria-label="L3 편집 트랙">
+      ${items
+        .map(
+          (item) =>
+            `<button class="btn btn-chip${activeTrack === item.id ? ' active' : ''}" data-l3-track="${item.id}" type="button" role="tab" aria-selected="${activeTrack === item.id}">${item.label}${item.edited ? ' •' : ''}</button>`
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function renderDrumSequencer(project: SongProject, trackTabsHtml: string): string {
+  const pattern: DrumStepPattern = project.customDrums ?? buildDefaultDrumPattern(project.blocks.grooveId);
+  const rows: Array<{ kind: DrumKind; label: string; activeSteps: Set<number> }> = [
+    { kind: 'kick', label: '킥 (Kick)', activeSteps: new Set(pattern.kicks) },
+    { kind: 'snare', label: '스네어 (Snare)', activeSteps: new Set(pattern.snares) },
+    { kind: 'hat', label: '하이햇 (Hi-Hat)', activeSteps: new Set(pattern.hats) },
+    { kind: 'clap', label: '클랩 (Clap)', activeSteps: new Set(pattern.claps) },
+  ];
+
+  const stepHeaders = Array.from({ length: 16 }, (_, s) => {
+    const beatStart = s % 4 === 0;
+    return `<div class="drum-step-head${beatStart ? ' beat-start' : ''}">${s + 1}</div>`;
+  }).join('');
+
+  const gridRows = rows
+    .map((r) => {
+      const cells = Array.from({ length: 16 }, (_, s) => {
+        const active = r.activeSteps.has(s);
+        const beatStart = s % 4 === 0;
+        return `<button class="drum-cell${active ? ' active' : ''}${beatStart ? ' beat-start' : ''}" data-drum-kind="${r.kind}" data-drum-step="${s}" type="button" aria-pressed="${active}" title="${r.label} ${s + 1}스텝"></button>`;
+      }).join('');
+      return `
+        <div class="drum-row">
+          <button class="drum-row-label" data-audition-drum="${r.kind}" type="button" title="클릭해 ${r.label} 미리듣기">${r.label}</button>
+          <div class="drum-row-cells">${cells}</div>
+        </div>
+      `;
+    })
+    .join('');
+
+  const fillSteps = pattern.fillSteps ?? [];
+  const fillEnabled = Boolean(pattern.fillEnabled);
+  const fillRows = rows
+    .map((r) => {
+      const cells = [12, 13, 14, 15]
+        .map((s) => {
+          const active = fillSteps.some((f) => f.kind === r.kind && f.step === s);
+          return `<button class="drum-cell${active ? ' active' : ''}" data-fill-kind="${r.kind}" data-fill-step="${s}" type="button" aria-pressed="${active}" title="필인 ${r.label} ${s + 1}스텝"></button>`;
+        })
+        .join('');
+      return `
+        <div class="drum-row">
+          <span class="drum-row-label static">${r.label}</span>
+          <div class="drum-fill-cells">${cells}</div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="drum-seq-wrap">
+      <div class="pianoroll-toolbar">
+        ${trackTabsHtml}
+        <div class="controls-row pr-controls-row">
+          <label class="drum-fill-toggle">
+            <input type="checkbox" id="chk-drum-fill"${fillEnabled ? ' checked' : ''} />
+            <span>4마디마다 끝박(13~16스텝) 필인 자동 삽입</span>
+          </label>
+          <button class="btn btn-chip" id="btn-drum-reset" type="button">그루브 기본값으로 초기화</button>
+        </div>
+      </div>
+      <div class="drum-grid-scroll">
+        <div class="drum-grid">
+          <div class="drum-header-row">
+            <div class="drum-row-label static">드럼 채널</div>
+            <div class="drum-row-cells">${stepHeaders}</div>
+          </div>
+          ${gridRows}
+        </div>
+      </div>
+      ${
+        fillEnabled
+          ? `
+            <div class="drum-fill-box">
+              <p class="section-title">마디 끝 필인 패턴 (4·8·12·16마디의 13~16스텝)</p>
+              <div class="drum-fill-grid">${fillRows}</div>
+            </div>
+          `
+          : ''
+      }
+    </div>
+  `;
+}
+
 function renderL3Body(
   project: SongProject,
   compiled: CompiledSong,
@@ -1001,7 +1142,9 @@ function renderL3Body(
   selectedDuration: number,
   opts: {
     showDurationPicker: boolean;
+    showTrackTabs?: boolean;
     showUnbake: boolean;
+    track?: L3EditTrack;
     loopRange?: LoopBarRange | null;
     coachCompare?: CoachVisualDiff | null;
     coachCompareActive?: boolean;
@@ -1010,7 +1153,13 @@ function renderL3Body(
     metrics?: PianoRollMetrics;
   } = { showDurationPicker: true, showUnbake: false }
 ): string {
-  const metrics = opts.metrics ?? resolvePianoRollMetrics(PRESETS.pianoRoll.defaultDesktopZoomId, false);
+  const track: L3EditTrack = opts.track ?? 'melody';
+  const trackTabsHtml = opts.showTrackTabs ? renderL3TrackTabs(track, project) : '';
+  if (track === 'drums') {
+    return renderDrumSequencer(project, trackTabsHtml);
+  }
+  const metrics =
+    opts.metrics ?? resolvePianoRollMetrics(PRESETS.pianoRoll.defaultDesktopZoomId, false, track);
   const toolMode: PianoRollToolMode = opts.toolMode ?? 'draw';
   const { minMidi, maxMidi, stepW, rowH, zoomId, touchSized } = metrics;
   const totalPitches = maxMidi - minMidi + 1;
@@ -1206,8 +1355,9 @@ function renderL3Body(
 
   const labelFontSize = Math.max(10, Math.round(rowH * 0.5));
   const labelOffsetY = Math.round(rowH * 0.62);
+  const trackNotes = getTrackNotesFromCompiled(compiled, track);
   let noteRects = '';
-  for (const n of compiled.melody) {
+  for (const n of trackNotes) {
     if (n.midi < minMidi || n.midi > maxMidi) continue;
     const rowIdx = maxMidi - n.midi;
     const x = n.step * stepW + 1;
@@ -1216,7 +1366,12 @@ function renderL3Body(
     const h = rowH - 4;
     const handleW = computeHandleWidth(w, touchSized);
     const gripX = x + w - Math.max(3.5, Math.min(6, handleW * 0.45));
-    const fill = noteRoleColor(n.role);
+    const fill =
+      track === 'chords'
+        ? '#a78bfa'
+        : track === 'bass'
+          ? '#f59e0b'
+          : noteRoleColor(n.role ?? 'passing');
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
     const isSelected = Boolean(opts.selectedIds?.has(n.id));
     noteRects += `
@@ -1272,7 +1427,7 @@ function renderL3Body(
     : '';
   const selCount = opts.selectedIds?.size ?? 0;
   const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
-  const hasNotes = compiled.melody.length > 0;
+  const hasNotes = trackNotes.length > 0;
   const selectionBarHtml = `
     <div class="pr-selection-bar" id="pr-selection-bar"${selCount > 0 || hasClipboard || toolMode === 'select' ? '' : ' hidden'}>
       <span class="pr-selection-count" id="pr-selection-count">선택 ${selCount}개</span>
@@ -1296,6 +1451,7 @@ function renderL3Body(
   return `
     <div class="pianoroll-wrap${hasCoachDiff && opts.coachCompareActive ? ' coach-comparing' : ''}">
       <div class="pianoroll-toolbar">
+        ${trackTabsHtml}
         <div class="legend">
           <span class="legend-item"><span class="swatch" style="background:#34d399"></span>코드톤 (안정)</span>
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
@@ -1338,6 +1494,86 @@ function renderL3Body(
   `;
 }
 
+function wireDrumSequencerEvents(
+  container: HTMLElement,
+  project: SongProject,
+  callbacks: LayerCallbacks
+): void {
+  const ensureCustomDrums = (): DrumStepPattern =>
+    project.customDrums
+      ? {
+          kicks: [...project.customDrums.kicks],
+          snares: [...project.customDrums.snares],
+          hats: [...project.customDrums.hats],
+          claps: [...project.customDrums.claps],
+          fillEnabled: project.customDrums.fillEnabled,
+          fillSteps: project.customDrums.fillSteps?.map((f) => ({ ...f })),
+        }
+      : buildDefaultDrumPattern(project.blocks.grooveId);
+
+  container.querySelectorAll<HTMLButtonElement>('[data-audition-drum]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.auditionDrum as DrumKind;
+      callbacks.onAuditionDrum?.(kind);
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-drum-kind]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.drumKind as DrumKind;
+      const step = Number(btn.dataset.drumStep);
+      const next = cloneProject(project);
+      const pat = ensureCustomDrums();
+      const key =
+        kind === 'kick' ? 'kicks' : kind === 'snare' ? 'snares' : kind === 'hat' ? 'hats' : 'claps';
+      const idx = pat[key].indexOf(step);
+      if (idx >= 0) {
+        pat[key].splice(idx, 1);
+      } else {
+        pat[key].push(step);
+        pat[key].sort((a, b) => a - b);
+        callbacks.onAuditionDrum?.(kind);
+      }
+      next.customDrums = pat;
+      callbacks.onProjectChange(next);
+    });
+  });
+
+  container.querySelector('#chk-drum-fill')?.addEventListener('change', (e) => {
+    const next = cloneProject(project);
+    const pat = ensureCustomDrums();
+    pat.fillEnabled = (e.target as HTMLInputElement).checked;
+    next.customDrums = pat;
+    callbacks.onProjectChange(next);
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-fill-kind]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.fillKind as DrumKind;
+      const step = Number(btn.dataset.fillStep);
+      const next = cloneProject(project);
+      const pat = ensureCustomDrums();
+      const list = pat.fillSteps ? [...pat.fillSteps] : [];
+      const existingIdx = list.findIndex((f) => f.kind === kind && f.step === step);
+      if (existingIdx >= 0) {
+        list.splice(existingIdx, 1);
+      } else {
+        list.push({ kind, step });
+        callbacks.onAuditionDrum?.(kind);
+      }
+      pat.fillSteps = list;
+      next.customDrums = pat;
+      callbacks.onProjectChange(next);
+    });
+  });
+
+  container.querySelector('#btn-drum-reset')?.addEventListener('click', () => {
+    const next = cloneProject(project);
+    next.customDrums = undefined;
+    callbacks.onProjectChange(next);
+  });
+}
+
 function wireL3Events(
   container: HTMLElement,
   project: SongProject,
@@ -1347,7 +1583,25 @@ function wireL3Events(
   onRerenderView?: () => void
 ): void {
   detachContainerKeyHandler(container);
-  const selectedIds = pruneSelectionForMelody(container, compiled);
+  const activeTrack = getL3Track(container);
+
+  container.querySelectorAll<HTMLButtonElement>('[data-l3-track]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nextTrack = btn.dataset.l3Track as L3EditTrack;
+      if (nextTrack === activeTrack) return;
+      containerL3TrackMap.set(container, nextTrack);
+      containerSelectionMap.delete(container);
+      onRerenderView?.();
+    });
+  });
+
+  if (activeTrack === 'drums') {
+    wireDrumSequencerEvents(container, project, callbacks);
+    return;
+  }
+
+  const trackNotes = getTrackNotesFromCompiled(compiled, activeTrack);
+  const selectedIds = pruneSelectionForTrack(container, compiled, activeTrack);
   const toolMode = getToolMode(container);
   const { minMidi, maxMidi, stepW, rowH } = metrics;
 
@@ -1376,8 +1630,14 @@ function wireL3Events(
 
   container.querySelector('#btn-unbake')?.addEventListener('click', () => {
     const next = cloneProject(project);
-    next.baked = false;
-    next.bakedMelody = [];
+    if (activeTrack === 'chords') {
+      next.bakedChords = undefined;
+    } else if (activeTrack === 'bass') {
+      next.bakedBass = undefined;
+    } else {
+      next.baked = false;
+      next.bakedMelody = [];
+    }
     callbacks.onProjectChange(next);
   });
 
@@ -1556,7 +1816,14 @@ function wireL3Events(
   let isPointerInteracting = false;
 
   const getBaseNotes = (): NoteEvent[] =>
-    compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+    trackNotes.map((n) => ({
+      id: n.id,
+      midi: n.midi,
+      step: n.step,
+      duration: n.duration,
+      velocity: n.velocity,
+      origin: n.origin,
+    }));
 
   const syncSelectionUi = (): void => {
     svg.querySelectorAll<SVGGElement>('.pr-note').forEach((el) => {
@@ -1566,7 +1833,7 @@ function wireL3Events(
 
     const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
     const count = selectedIds.size;
-    const hasNotes = compiled.melody.length > 0;
+    const hasNotes = trackNotes.length > 0;
     const bar = container.querySelector<HTMLElement>('#pr-selection-bar');
     if (bar) {
       bar.hidden = count === 0 && !hasClipboard && toolMode !== 'select';
@@ -1604,14 +1871,20 @@ function wireL3Events(
       }
     }
     const next = cloneProject(project);
-    next.bakedMelody = nextNotes;
-    next.baked = true;
+    if (activeTrack === 'chords') {
+      next.bakedChords = nextNotes;
+    } else if (activeTrack === 'bass') {
+      next.bakedBass = nextNotes;
+    } else {
+      next.bakedMelody = nextNotes;
+      next.baked = true;
+    }
     callbacks.onProjectChange(next);
   };
 
   const selectAllNotes = (): void => {
     selectedIds.clear();
-    for (const n of compiled.melody) {
+    for (const n of trackNotes) {
       selectedIds.add(n.id);
     }
     syncSelectionUi();
@@ -1652,7 +1925,9 @@ function wireL3Events(
       targetStep,
       compiled.totalSteps,
       bounds,
-      prefix
+      prefix,
+      0,
+      true
     );
     if (res.pastedIds.length === 0) return;
     nextPasteStep = res.endStep < compiled.totalSteps ? res.endStep : 0;
@@ -1667,7 +1942,8 @@ function wireL3Events(
       selectedIds,
       compiled.totalSteps,
       bounds,
-      prefix
+      prefix,
+      true
     );
     if (res.pastedIds.length === 0) return;
     nextPasteStep = res.endStep < compiled.totalSteps ? res.endStep : 0;
@@ -1698,7 +1974,8 @@ function wireL3Events(
       clamped.deltaStep,
       clamped.deltaMidi,
       compiled.totalSteps,
-      bounds
+      bounds,
+      true
     );
     commitNotes(moved, selectedIds);
   };
@@ -1710,7 +1987,8 @@ function wireL3Events(
       baseNotes,
       selectedIds,
       deltaSteps,
-      compiled.totalSteps
+      compiled.totalSteps,
+      true
     );
     const unchanged =
       adjusted.length === baseNotes.length &&
@@ -1749,7 +2027,7 @@ function wireL3Events(
       deletedInUpNoteId = null;
       return;
     }
-    if (!compiled.melody.some((n) => n.id === noteId)) return;
+    if (!trackNotes.some((n) => n.id === noteId)) return;
     selectedIds.delete(noteId);
     commitNotes(deletePianoRollNote(getBaseNotes(), noteId));
   });
@@ -1764,7 +2042,7 @@ function wireL3Events(
       deleteSelected();
       return;
     }
-    if (!compiled.melody.some((n) => n.id === noteId)) return;
+    if (!trackNotes.some((n) => n.id === noteId)) return;
     selectedIds.delete(noteId);
     commitNotes(deletePianoRollNote(getBaseNotes(), noteId));
   });
@@ -1927,12 +2205,13 @@ function wireL3Events(
 
           callbacks.onAuditionPitch(midi);
           const added = addPianoRollNote(baseNotes, {
-            id: `m_user_${Date.now()}_${step}`,
+            id: `m_user_${Date.now()}_${step}_${midi}`,
             midi,
             step,
             duration: callbacks.selectedDuration,
             totalSteps: compiled.totalSteps,
             bounds,
+            poly: true,
           });
           commitNotes(added);
         };
@@ -2046,12 +2325,13 @@ function wireL3Events(
 
         callbacks.onAuditionPitch(midi);
         const added = addPianoRollNote(baseNotes, {
-          id: `m_user_${Date.now()}_${step}`,
+          id: `m_user_${Date.now()}_${step}_${midi}`,
           midi,
           step,
           duration: callbacks.selectedDuration,
           totalSteps: compiled.totalSteps,
           bounds,
+          poly: true,
         });
         commitNotes(added);
       };
@@ -2064,7 +2344,7 @@ function wireL3Events(
     }
 
     const noteId = noteGroup.getAttribute('data-note-id');
-    const targetNote = compiled.melody.find((n) => n.id === noteId);
+    const targetNote = trackNotes.find((n) => n.id === noteId);
     if (!targetNote) return;
 
     e.preventDefault();
@@ -2077,7 +2357,7 @@ function wireL3Events(
 
     // 경우 B: 오른쪽 끝 핸들 드래그 -> 길이 조절
     if (resizeEl) {
-      const maxDuration = computeMaxResizeDuration(baseNotes, targetNote.id, compiled.totalSteps);
+      const maxDuration = computeMaxResizeDuration(baseNotes, targetNote.id, compiled.totalSteps, true);
       let curDuration = targetNote.duration;
       isPointerInteracting = true;
       if (touchPointer) tryCapturePointer(resizeEl, e.pointerId);
@@ -2115,7 +2395,7 @@ function wireL3Events(
           targetNote.step,
           targetNote.midi,
           targetNote.duration,
-          targetNote.role,
+          targetNote.role ?? 'passing',
           metrics
         );
       };
@@ -2129,10 +2409,10 @@ function wireL3Events(
       const onUp = () => {
         cleanup();
         if (curDuration !== targetNote.duration) {
-          const next = cloneProject(project);
-          next.bakedMelody = resizePianoRollNote(baseNotes, targetNote.id, curDuration, compiled.totalSteps);
-          next.baked = true;
-          callbacks.onProjectChange(next);
+          commitNotes(
+            resizePianoRollNote(baseNotes, targetNote.id, curDuration, compiled.totalSteps, true),
+            selectedIds
+          );
         }
       };
 
@@ -2148,7 +2428,7 @@ function wireL3Events(
     const startClientY = e.clientY;
     const toggleModifier = e.shiftKey || e.ctrlKey || e.metaKey || toolMode === 'select';
     const dragIds = selectedIds.has(targetNote.id) ? new Set(selectedIds) : new Set([targetNote.id]);
-    const dragNotes = compiled.melody.filter((n) => dragIds.has(n.id));
+    const dragNotes = trackNotes.filter((n) => dragIds.has(n.id));
     const dragGroups = new Map<string, SVGGElement>();
     for (const dn of dragNotes) {
       const g = svg.querySelector<SVGGElement>(`.pr-note[data-note-id="${dn.id}"]`);
@@ -2183,7 +2463,7 @@ function wireL3Events(
       for (const dn of dragNotes) {
         const g = dragGroups.get(dn.id);
         if (g) {
-          applyNoteGroupGeometry(g, dn.step, dn.midi, dn.duration, dn.role, metrics);
+          applyNoteGroupGeometry(g, dn.step, dn.midi, dn.duration, dn.role ?? 'passing', metrics);
         }
       }
     };
@@ -2296,7 +2576,8 @@ function wireL3Events(
               compiled.totalSteps,
               bounds,
               prefix,
-              curDeltaMidi
+              curDeltaMidi,
+              true
             );
             if (res.pastedIds.length > 0) {
               commitNotes(res.notes, res.pastedIds);
@@ -2313,7 +2594,8 @@ function wireL3Events(
           curDeltaStep,
           curDeltaMidi,
           compiled.totalSteps,
-          bounds
+          bounds,
+          true
         );
         commitNotes(moved, dragIds);
       }

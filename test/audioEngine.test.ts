@@ -106,7 +106,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
       guitar: guitar.voice,
       bass: bass.voice,
       drums: drums.voice,
-      drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+      drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short', clap: 'clap' },
     };
 
     const statuses: SampleLoadStatus[] = [];
@@ -189,7 +189,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
         guitar: guitar.voice,
         bass: bass.voice,
         drums: drums.voice,
-        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short', clap: 'clap' },
       }),
       () => ctx
     );
@@ -239,7 +239,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
           guitar: guitar.voice,
           bass: bass.voice,
           drums: drums.voice,
-          drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+          drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short', clap: 'clap' },
         }),
         () => ctx,
         25
@@ -268,7 +268,7 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
         guitar: voice,
         bass: voice,
         drums: voice,
-        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short', clap: 'clap' },
       }),
       () => ctx
     );

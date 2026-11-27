@@ -631,6 +631,125 @@ input[type='range'] {
   color: var(--muted);
 }
 
+.pr-track-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.drum-seq-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drum-fill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.drum-grid-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-alt);
+  padding: 10px;
+}
+
+.drum-grid,
+.drum-fill-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 560px;
+}
+
+.drum-fill-grid {
+  min-width: 0;
+}
+
+.drum-header-row,
+.drum-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drum-row-label {
+  width: 112px;
+  flex-shrink: 0;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.drum-row-label.static {
+  cursor: default;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.drum-row-cells {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(26px, 1fr));
+  gap: 4px;
+  flex: 1;
+}
+
+.drum-fill-cells {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(36px, 60px));
+  gap: 6px;
+}
+
+.drum-step-head {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.drum-step-head.beat-start {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.drum-cell {
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.drum-cell.beat-start {
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.drum-cell.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.drum-fill-box {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
 .l2-chord-slot select {
   background: var(--panel);
   border: 1px solid var(--border);

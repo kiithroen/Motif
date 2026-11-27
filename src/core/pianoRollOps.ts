@@ -27,6 +27,7 @@ export interface AddNoteParams {
   totalSteps: number;
   bounds: PitchBounds;
   velocity?: number;
+  poly?: boolean;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -50,28 +51,73 @@ export function normalizeMelodyNotes(notes: NoteEvent[], totalSteps: number): No
   return sorted;
 }
 
+/** 폴리포니 음표를 시작 스텝/음높이 순으로 정렬하고 같은 피치의 다음 음표와 겹치지 않게 보정한다. */
+export function normalizePolyNotes(notes: NoteEvent[], totalSteps: number): NoteEvent[] {
+  if (totalSteps <= 0) return [];
+  const sorted = notes
+    .map((n) => ({ ...n }))
+    .filter((n) => n.step >= 0 && n.step < totalSteps)
+    .sort((a, b) => a.step - b.step || a.midi - b.midi);
+
+  // 같은 (step, midi) 중복은 뒤의 항목을 남긴다.
+  const deduped: NoteEvent[] = [];
+  const keyToIdx = new Map<string, number>();
+  for (const n of sorted) {
+    const k = `${n.step}:${n.midi}`;
+    const prevIdx = keyToIdx.get(k);
+    if (prevIdx !== undefined) {
+      deduped[prevIdx] = n;
+    } else {
+      keyToIdx.set(k, deduped.length);
+      deduped.push(n);
+    }
+  }
+
+  // 같은 midi 내에서만 다음 음표와 겹치지 않게 길이를 보정한다.
+  const lastByMidi = new Map<number, NoteEvent>();
+  for (const cur of deduped) {
+    const prevSamePitch = lastByMidi.get(cur.midi);
+    if (prevSamePitch && prevSamePitch.step < cur.step) {
+      prevSamePitch.duration = Math.max(1, Math.min(prevSamePitch.duration, cur.step - prevSamePitch.step));
+    }
+    cur.duration = Math.max(1, Math.min(cur.duration, totalSteps - cur.step));
+    lastByMidi.set(cur.midi, cur);
+  }
+  return deduped;
+}
+
 /** 대상 음표가 다음 음표를 침범하지 않고 늘릴 수 있는 최대 스텝 길이를 계산한다. */
-export function computeMaxResizeDuration(notes: NoteEvent[], noteId: string, totalSteps: number): number {
+export function computeMaxResizeDuration(
+  notes: NoteEvent[],
+  noteId: string,
+  totalSteps: number,
+  poly = false
+): number {
   const target = notes.find((n) => n.id === noteId);
   if (!target) return 1;
 
   let limitStep = totalSteps;
   for (const other of notes) {
-    if (other.id !== noteId && other.step > target.step && other.step < limitStep) {
+    if (other.id === noteId) continue;
+    if (poly && other.midi !== target.midi) continue;
+    if (other.step > target.step && other.step < limitStep) {
       limitStep = other.step;
     }
   }
   return Math.max(1, limitStep - target.step);
 }
 
-/** 빈 칸 클릭 위치에 새 음표를 추가한다. 같은 스텝에 음표가 있으면 교체한다. */
+/** 빈 칸 클릭 위치에 새 음표를 추가한다. poly=false면 같은 스텝을, poly=true면 같은 (스텝, 음높이)를 교체한다. */
 export function addPianoRollNote(notes: NoteEvent[], params: AddNoteParams): NoteEvent[] {
   if (params.totalSteps <= 0) return [];
   const step = clamp(Math.round(params.step), 0, params.totalSteps - 1);
   const midi = clamp(Math.round(params.midi), params.bounds.minMidi, params.bounds.maxMidi);
   const duration = clamp(Math.round(params.duration), 1, params.totalSteps - step);
+  const poly = Boolean(params.poly);
 
-  const kept = notes.filter((n) => n.step !== step).map((n) => ({ ...n }));
+  const kept = notes
+    .filter((n) => (poly ? !(n.step === step && n.midi === midi) : n.step !== step))
+    .map((n) => ({ ...n }));
   kept.push({
     id: params.id,
     midi,
@@ -80,7 +126,7 @@ export function addPianoRollNote(notes: NoteEvent[], params: AddNoteParams): Not
     velocity: params.velocity ?? 0.82,
     origin: 'user',
   });
-  return normalizeMelodyNotes(kept, params.totalSteps);
+  return poly ? normalizePolyNotes(kept, params.totalSteps) : normalizeMelodyNotes(kept, params.totalSteps);
 }
 
 /** 지정한 ID의 음표를 삭제한다. */
@@ -95,7 +141,8 @@ export function movePianoRollNote(
   targetStep: number,
   targetMidi: number,
   totalSteps: number,
-  bounds: PitchBounds
+  bounds: PitchBounds,
+  poly = false
 ): NoteEvent[] {
   const target = notes.find((n) => n.id === noteId);
   if (!target) return notes.map((n) => ({ ...n }));
@@ -106,7 +153,10 @@ export function movePianoRollNote(
   const duration = Math.max(1, Math.min(target.duration, totalSteps - clampedStep));
 
   const others = notes
-    .filter((n) => n.id !== noteId && n.step !== clampedStep)
+    .filter((n) => {
+      if (n.id === noteId) return false;
+      return poly ? !(n.step === clampedStep && n.midi === clampedMidi) : n.step !== clampedStep;
+    })
     .map((n) => ({ ...n }));
 
   others.push({
@@ -116,7 +166,7 @@ export function movePianoRollNote(
     duration,
     origin: 'user',
   });
-  return normalizeMelodyNotes(others, totalSteps);
+  return poly ? normalizePolyNotes(others, totalSteps) : normalizeMelodyNotes(others, totalSteps);
 }
 
 /** 기존 음표의 지속 길이(스텝)를 최소 1 이상, 다음 음표 시작 전까지로 조절한다. */
@@ -124,19 +174,20 @@ export function resizePianoRollNote(
   notes: NoteEvent[],
   noteId: string,
   targetDuration: number,
-  totalSteps: number
+  totalSteps: number,
+  poly = false
 ): NoteEvent[] {
   const target = notes.find((n) => n.id === noteId);
   if (!target) return notes.map((n) => ({ ...n }));
   if (totalSteps <= 0) return [];
 
-  const maxDur = computeMaxResizeDuration(notes, noteId, totalSteps);
+  const maxDur = computeMaxResizeDuration(notes, noteId, totalSteps, poly);
   const clampedDur = clamp(Math.round(targetDuration), 1, maxDur);
 
   const updated = notes.map((n) =>
     n.id === noteId ? { ...n, duration: clampedDur, origin: 'user' as const } : { ...n }
   );
-  return normalizeMelodyNotes(updated, totalSteps);
+  return poly ? normalizePolyNotes(updated, totalSteps) : normalizeMelodyNotes(updated, totalSteps);
 }
 
 /** 선택된 음표들을 상대 스텝 오프셋 기준 클립보드 데이터로 복사한다. */
@@ -226,7 +277,8 @@ export function movePianoRollNotes(
   deltaStep: number,
   deltaMidi: number,
   totalSteps: number,
-  bounds: PitchBounds
+  bounds: PitchBounds,
+  poly = false
 ): NoteEvent[] {
   if (totalSteps <= 0) return [];
   const selected = notes.filter((n) => selectedIds.has(n.id));
@@ -251,11 +303,17 @@ export function movePianoRollNotes(
   });
 
   const occupiedSteps = new Set(movedSelected.map((n) => n.step));
+  const occupiedKeys = new Set(movedSelected.map((n) => `${n.step}:${n.midi}`));
   const others = notes
-    .filter((n) => !selectedIds.has(n.id) && !occupiedSteps.has(n.step))
+    .filter((n) => {
+      if (selectedIds.has(n.id)) return false;
+      return poly ? !occupiedKeys.has(`${n.step}:${n.midi}`) : !occupiedSteps.has(n.step);
+    })
     .map((n) => ({ ...n }));
 
-  return normalizeMelodyNotes([...others, ...movedSelected], totalSteps);
+  return poly
+    ? normalizePolyNotes([...others, ...movedSelected], totalSteps)
+    : normalizeMelodyNotes([...others, ...movedSelected], totalSteps);
 }
 
 /** 클립보드 음표를 지정한 시작 스텝에 붙여넣고 새 음표 ID 목록과 끝 스텝을 반환한다. */
@@ -266,7 +324,8 @@ export function pastePianoRollNotes(
   totalSteps: number,
   bounds: PitchBounds,
   idPrefix = 'm_paste',
-  midiOffset = 0
+  midiOffset = 0,
+  poly = false
 ): { notes: NoteEvent[]; pastedIds: string[]; endStep: number } {
   if (totalSteps <= 0) {
     return { notes: [], pastedIds: [], endStep: 0 };
@@ -303,8 +362,13 @@ export function pastePianoRollNotes(
   }
 
   const occupiedSteps = new Set(placed.map((n) => n.step));
-  const kept = notes.filter((n) => !occupiedSteps.has(n.step)).map((n) => ({ ...n }));
-  const normalized = normalizeMelodyNotes([...kept, ...placed], totalSteps);
+  const occupiedKeys = new Set(placed.map((n) => `${n.step}:${n.midi}`));
+  const kept = notes
+    .filter((n) => (poly ? !occupiedKeys.has(`${n.step}:${n.midi}`) : !occupiedSteps.has(n.step)))
+    .map((n) => ({ ...n }));
+  const normalized = poly
+    ? normalizePolyNotes([...kept, ...placed], totalSteps)
+    : normalizeMelodyNotes([...kept, ...placed], totalSteps);
   const pastedIdSet = new Set(pastedIds);
   const endStep = normalized.reduce(
     (max, n) => (pastedIdSet.has(n.id) ? Math.max(max, n.step + n.duration) : max),
@@ -320,13 +384,14 @@ export function duplicatePianoRollNotes(
   selectedIds: ReadonlySet<string>,
   totalSteps: number,
   bounds: PitchBounds,
-  idPrefix = 'm_dup'
+  idPrefix = 'm_dup',
+  poly = false
 ): { notes: NoteEvent[]; pastedIds: string[]; endStep: number } {
   const clipboard = copyPianoRollNotes(notes, selectedIds);
   if (!clipboard) {
     return { notes: notes.map((n) => ({ ...n })), pastedIds: [], endStep: 0 };
   }
-  return pastePianoRollNotes(notes, clipboard, clipboard.sourceEndStep, totalSteps, bounds, idPrefix);
+  return pastePianoRollNotes(notes, clipboard, clipboard.sourceEndStep, totalSteps, bounds, idPrefix, 0, poly);
 }
 
 /** 선택된 음표들의 지속 길이를 상대 스텝만큼 증감하되 최소 1 및 다음 음표 경계 내로 제한한다. */
@@ -334,7 +399,8 @@ export function adjustPianoRollNotesDuration(
   notes: NoteEvent[],
   selectedIds: ReadonlySet<string>,
   deltaSteps: number,
-  totalSteps: number
+  totalSteps: number,
+  poly = false
 ): NoteEvent[] {
   const stepDelta = Math.round(deltaSteps);
   if (totalSteps <= 0) return [];
@@ -345,7 +411,7 @@ export function adjustPianoRollNotesDuration(
   let changed = false;
   const updated = notes.map((n) => {
     if (!selectedIds.has(n.id)) return { ...n };
-    const maxDur = computeMaxResizeDuration(notes, n.id, totalSteps);
+    const maxDur = computeMaxResizeDuration(notes, n.id, totalSteps, poly);
     const nextDuration = clamp(Math.round(n.duration + stepDelta), 1, maxDur);
     if (nextDuration !== n.duration) {
       changed = true;
@@ -355,7 +421,7 @@ export function adjustPianoRollNotesDuration(
   });
 
   if (!changed) return notes.map((n) => ({ ...n }));
-  return normalizeMelodyNotes(updated, totalSteps);
+  return poly ? normalizePolyNotes(updated, totalSteps) : normalizeMelodyNotes(updated, totalSteps);
 }
 
 /** 마키 드래그 영역(스텝/음높이 범위)과 겹치는 음표 ID 목록을 반환한다. */

@@ -872,6 +872,7 @@ function init(): void {
       },
       onProjectChange: (next, options) => updateState(next, options),
       onAuditionPitch: auditionPitch,
+      onAuditionDrum: (kind) => audio.playDrum(kind, audio.currentTime + 0.01, 0.85),
       onSeekBar: seekToBar,
       onLoopRangeChange: setLoopRange,
       onDismissCoachCompare: () => coachController.dismissVisualCompare(),

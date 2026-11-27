@@ -61,12 +61,26 @@ export interface NoteEvent {
   origin?: NoteOrigin;
 }
 
-export type DrumKind = 'kick' | 'snare' | 'hat';
+export type DrumKind = 'kick' | 'snare' | 'hat' | 'clap';
 
 export interface DrumEvent {
   kind: DrumKind;
   step: number;
   velocity: number;
+}
+
+export interface DrumFillEvent {
+  kind: DrumKind;
+  step: number;
+}
+
+export interface DrumStepPattern {
+  kicks: number[];
+  snares: number[];
+  hats: number[];
+  claps: number[];
+  fillEnabled?: boolean;
+  fillSteps?: DrumFillEvent[];
 }
 
 export interface SongProject {
@@ -81,6 +95,9 @@ export interface SongProject {
   chain: L2Chain;
   baked: boolean;
   bakedMelody: NoteEvent[];
+  bakedBass?: NoteEvent[];
+  bakedChords?: NoteEvent[];
+  customDrums?: DrumStepPattern;
 }
 
 export interface ProgressionPreset {
@@ -276,5 +293,17 @@ export function cloneProject(project: SongProject): SongProject {
       modifiers: project.chain.modifiers.map((m) => ({ ...m })),
     },
     bakedMelody: project.bakedMelody.map((n) => ({ ...n })),
+    bakedBass: project.bakedBass ? project.bakedBass.map((n) => ({ ...n })) : undefined,
+    bakedChords: project.bakedChords ? project.bakedChords.map((n) => ({ ...n })) : undefined,
+    customDrums: project.customDrums
+      ? {
+          kicks: [...project.customDrums.kicks],
+          snares: [...project.customDrums.snares],
+          hats: [...project.customDrums.hats],
+          claps: [...project.customDrums.claps],
+          fillEnabled: project.customDrums.fillEnabled,
+          fillSteps: project.customDrums.fillSteps?.map((f) => ({ ...f })),
+        }
+      : undefined,
   };
 }

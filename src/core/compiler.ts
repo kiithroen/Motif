@@ -4,6 +4,7 @@ import {
   type ChordInstrument,
   type ChordSlot,
   type DrumEvent,
+  type DrumStepPattern,
   type L1Blocks,
   type L2Chain,
   type ModifierId,
@@ -13,6 +14,7 @@ import {
   buildDefaultModifiers,
   cloneProject,
 } from './model';
+import { normalizePolyNotes } from './pianoRollOps';
 import {
   classifyPitch,
   getScaleMidiNotes,
@@ -428,6 +430,23 @@ function applyModifierPipeline(
   return sortAndTrimOverlaps(notes, totalSteps);
 }
 
+export function buildDefaultDrumPattern(grooveId: string): DrumStepPattern {
+  const groove = PRESETS.grooves.find((g) => g.id === grooveId) ?? PRESETS.grooves[0];
+  return {
+    kicks: [...groove.kicks],
+    snares: [...groove.snares],
+    hats: [...groove.hats],
+    claps: [],
+    fillEnabled: false,
+    fillSteps: [
+      { kind: 'snare', step: 12 },
+      { kind: 'snare', step: 13 },
+      { kind: 'snare', step: 14 },
+      { kind: 'clap', step: 15 },
+    ],
+  };
+}
+
 function compileAccompaniment(
   project: SongProject,
   resolvedChords: ResolvedChord[],
@@ -441,8 +460,17 @@ function compileAccompaniment(
   const groove = PRESETS.grooves.find((g) => g.id === project.blocks.grooveId) ?? PRESETS.grooves[0];
   const pattern =
     chordInstrument === 'piano' && groove.pianoPattern ? groove.pianoPattern : groove.chordStrums;
-  const chords: NoteEvent[] = [];
-  const bass: NoteEvent[] = [];
+  const totalSteps = project.bars * 16;
+  const customDrums = project.customDrums;
+  const hasBakedChords = Array.isArray(project.bakedChords);
+  const hasBakedBass = Array.isArray(project.bakedBass);
+
+  const chords: NoteEvent[] = hasBakedChords
+    ? normalizePolyNotes(project.bakedChords!, totalSteps)
+    : [];
+  const bass: NoteEvent[] = hasBakedBass
+    ? normalizePolyNotes(project.bakedBass!, totalSteps)
+    : [];
   const drums: DrumEvent[] = [];
 
   for (let bar = 0; bar < project.bars; bar++) {
@@ -450,53 +478,83 @@ function compileAccompaniment(
     const halfRc = resolvedHalfChords[bar];
     const barStep = bar * 16;
 
-    for (const st of pattern) {
-      const rc = st.step >= 8 && halfRc ? halfRc : firstRc;
-      const maxDur = halfRc && st.step < 8 ? Math.max(1, 8 - st.step) : 16 - st.step;
-      const dur = Math.min(st.duration, maxDur);
-      if (st.direction === 'arp0' || st.direction === 'arp1' || st.direction === 'arp2') {
-        const idx = st.direction === 'arp0' ? 0 : st.direction === 'arp1' ? 1 : 2;
-        const pitch = rc.voicingMidi[idx % rc.voicingMidi.length];
-        chords.push({
-          id: `c_${bar}_${st.step}_${idx}`,
-          midi: pitch,
-          step: barStep + st.step,
-          duration: dur,
-          velocity: st.velocity * (0.8 + project.blocks.energy * 0.25),
-        });
-      } else {
-        const order = st.direction === 'up' ? [...rc.voicingMidi].reverse() : rc.voicingMidi;
-        for (let i = 0; i < order.length; i++) {
+    if (!hasBakedChords) {
+      for (const st of pattern) {
+        const rc = st.step >= 8 && halfRc ? halfRc : firstRc;
+        const maxDur = halfRc && st.step < 8 ? Math.max(1, 8 - st.step) : 16 - st.step;
+        const dur = Math.min(st.duration, maxDur);
+        if (st.direction === 'arp0' || st.direction === 'arp1' || st.direction === 'arp2') {
+          const idx = st.direction === 'arp0' ? 0 : st.direction === 'arp1' ? 1 : 2;
+          const pitch = rc.voicingMidi[idx % rc.voicingMidi.length];
           chords.push({
-            id: `c_${bar}_${st.step}_${i}`,
-            midi: order[i],
+            id: `c_${bar}_${st.step}_${idx}`,
+            midi: pitch,
             step: barStep + st.step,
             duration: dur,
-            velocity: Math.min(0.95, st.velocity * (0.75 + project.blocks.energy * 0.3)),
+            velocity: st.velocity * (0.8 + project.blocks.energy * 0.25),
           });
+        } else {
+          const order = st.direction === 'up' ? [...rc.voicingMidi].reverse() : rc.voicingMidi;
+          for (let i = 0; i < order.length; i++) {
+            chords.push({
+              id: `c_${bar}_${st.step}_${i}`,
+              midi: order[i],
+              step: barStep + st.step,
+              duration: dur,
+              velocity: Math.min(0.95, st.velocity * (0.75 + project.blocks.energy * 0.3)),
+            });
+          }
         }
       }
     }
 
-    for (const bStep of groove.bassSteps) {
-      const rc = bStep >= 8 && halfRc ? halfRc : firstRc;
-      bass.push({
-        id: `b_${bar}_${bStep}`,
-        midi: rc.bassMidi,
-        step: barStep + bStep,
-        duration: 2,
-        velocity: Math.min(0.95, 0.72 + project.blocks.energy * 0.2),
-      });
+    if (!hasBakedBass) {
+      for (const bStep of groove.bassSteps) {
+        const rc = bStep >= 8 && halfRc ? halfRc : firstRc;
+        bass.push({
+          id: `b_${bar}_${bStep}`,
+          midi: rc.bassMidi,
+          step: barStep + bStep,
+          duration: 2,
+          velocity: Math.min(0.95, 0.72 + project.blocks.energy * 0.2),
+        });
+      }
     }
 
-    for (const k of groove.kicks) {
+    const drumSrc = customDrums ?? {
+      kicks: groove.kicks,
+      snares: groove.snares,
+      hats: groove.hats,
+      claps: [] as number[],
+      fillEnabled: false,
+      fillSteps: [],
+    };
+    const applyFillHere = Boolean(drumSrc.fillEnabled && bar % 4 === 3 && (drumSrc.fillSteps?.length ?? 0) > 0);
+
+    for (const k of drumSrc.kicks) {
+      if (applyFillHere && k >= 12) continue;
       drums.push({ kind: 'kick', step: barStep + k, velocity: 0.85 });
     }
-    for (const s of groove.snares) {
+    for (const s of drumSrc.snares) {
+      if (applyFillHere && s >= 12) continue;
       drums.push({ kind: 'snare', step: barStep + s, velocity: 0.78 });
     }
-    for (const h of groove.hats) {
+    for (const h of drumSrc.hats) {
+      if (applyFillHere && h >= 12) continue;
       drums.push({ kind: 'hat', step: barStep + h, velocity: h % 4 === 0 ? 0.55 : 0.38 });
+    }
+    for (const c of drumSrc.claps) {
+      if (applyFillHere && c >= 12) continue;
+      drums.push({ kind: 'clap', step: barStep + c, velocity: 0.74 });
+    }
+    if (applyFillHere && drumSrc.fillSteps) {
+      for (const f of drumSrc.fillSteps) {
+        drums.push({
+          kind: f.kind,
+          step: barStep + f.step,
+          velocity: f.kind === 'clap' ? 0.8 : 0.82,
+        });
+      }
     }
   }
 
@@ -538,7 +596,7 @@ export function compileSong(
   );
 
   const rawMelody = project.baked
-    ? sortAndTrimOverlaps(
+    ? normalizePolyNotes(
         project.bakedMelody.map((n) => ({ ...n })),
         totalSteps
       )
@@ -583,8 +641,22 @@ export function resizeProjectBars(project: SongProject, nextBars: BarCount): Son
   next.chain.chords = resizedChords;
   if (next.baked) {
     const maxStep = nextBars * 16;
-    next.bakedMelody = sortAndTrimOverlaps(
+    next.bakedMelody = normalizePolyNotes(
       next.bakedMelody.filter((n) => n.step < maxStep),
+      maxStep
+    );
+  }
+  if (next.bakedBass) {
+    const maxStep = nextBars * 16;
+    next.bakedBass = normalizePolyNotes(
+      next.bakedBass.filter((n) => n.step < maxStep),
+      maxStep
+    );
+  }
+  if (next.bakedChords) {
+    const maxStep = nextBars * 16;
+    next.bakedChords = normalizePolyNotes(
+      next.bakedChords.filter((n) => n.step < maxStep),
       maxStep
     );
   }

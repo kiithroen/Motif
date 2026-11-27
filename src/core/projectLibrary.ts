@@ -1,6 +1,8 @@
 import {
   type BarCount,
   type ChordSlot,
+  type DrumKind,
+  type DrumStepPattern,
   type EditorLayer,
   type MelodyInstrument,
   type NoteEvent,
@@ -327,59 +329,98 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
 
   const baked = typeof input.baked === 'boolean' ? input.baked : false;
   const totalSteps = bars * 16;
-  const usedNoteIds = new Set<string>();
+  const sanitizeNoteList = (
+    rawList: unknown[],
+    minMidi: number,
+    maxMidi: number,
+    idPrefix: string
+  ): NoteEvent[] => {
+    const usedIds = new Set<string>();
+    const out: NoteEvent[] = [];
+    for (let i = 0; i < rawList.length; i++) {
+      const rawNote = rawList[i];
+      if (
+        !isPlainObject(rawNote) ||
+        typeof rawNote.midi !== 'number' ||
+        !Number.isFinite(rawNote.midi) ||
+        typeof rawNote.step !== 'number' ||
+        !Number.isFinite(rawNote.step)
+      ) {
+        warnings.push('손상된 음표 데이터를 제외했다.');
+        continue;
+      }
+      const step = clampNumber(Math.round(rawNote.step), 0, totalSteps - 1);
+      const midi = clampNumber(Math.round(rawNote.midi), minMidi, maxMidi);
+      const rawDuration =
+        typeof rawNote.duration === 'number' && Number.isFinite(rawNote.duration) ? Math.round(rawNote.duration) : 2;
+      const duration = clampNumber(rawDuration, 1, totalSteps - step);
+      const velocity =
+        typeof rawNote.velocity === 'number' && Number.isFinite(rawNote.velocity)
+          ? clampNumber(rawNote.velocity, 0.05, 1)
+          : 0.82;
+      if (step !== Math.round(rawNote.step) || midi !== Math.round(rawNote.midi) || duration !== rawDuration) {
+        warnings.push('범위를 벗어난 음표 위치·음높이·길이를 보정했다.');
+      }
+      let noteId = typeof rawNote.id === 'string' && rawNote.id.trim() ? rawNote.id.trim() : `${idPrefix}_${i + 1}`;
+      if (usedIds.has(noteId)) {
+        let suffix = 2;
+        while (usedIds.has(`${noteId}_${suffix}`)) suffix += 1;
+        noteId = `${noteId}_${suffix}`;
+      }
+      usedIds.add(noteId);
+      const note: NoteEvent = { id: noteId, midi, step, duration, velocity };
+      if (typeof rawNote.origin === 'string' && VALID_ORIGINS.has(rawNote.origin as NoteOrigin)) {
+        note.origin = rawNote.origin as NoteOrigin;
+      }
+      out.push(note);
+    }
+    out.sort((a, b) => a.step - b.step || a.midi - b.midi);
+    return out;
+  };
+
   const rawMelody = Array.isArray(input.bakedMelody) ? input.bakedMelody : [];
-  const sanitizedNotes: NoteEvent[] = [];
+  const sanitizedNotes = sanitizeNoteList(rawMelody, libCfg.midiMin, libCfg.midiMax, 'note');
+  const sanitizedBass = Array.isArray(input.bakedBass)
+    ? sanitizeNoteList(input.bakedBass, 24, 72, 'bass')
+    : undefined;
+  const sanitizedChords = Array.isArray(input.bakedChords)
+    ? sanitizeNoteList(input.bakedChords, 36, 96, 'chord')
+    : undefined;
 
-  for (let i = 0; i < rawMelody.length; i++) {
-    const rawNote = rawMelody[i];
-    if (
-      !isPlainObject(rawNote) ||
-      typeof rawNote.midi !== 'number' ||
-      !Number.isFinite(rawNote.midi) ||
-      typeof rawNote.step !== 'number' ||
-      !Number.isFinite(rawNote.step)
-    ) {
-      warnings.push('손상된 음표 데이터를 제외했다.');
-      continue;
-    }
-
-    const step = clampNumber(Math.round(rawNote.step), 0, totalSteps - 1);
-    const midi = clampNumber(Math.round(rawNote.midi), libCfg.midiMin, libCfg.midiMax);
-    const rawDuration =
-      typeof rawNote.duration === 'number' && Number.isFinite(rawNote.duration) ? Math.round(rawNote.duration) : 2;
-    const duration = clampNumber(rawDuration, 1, totalSteps - step);
-    const velocity =
-      typeof rawNote.velocity === 'number' && Number.isFinite(rawNote.velocity)
-        ? clampNumber(rawNote.velocity, 0.05, 1)
-        : 0.82;
-
-    if (step !== Math.round(rawNote.step) || midi !== Math.round(rawNote.midi) || duration !== rawDuration) {
-      warnings.push('범위를 벗어난 음표 위치·음높이·길이를 보정했다.');
-    }
-
-    let noteId = typeof rawNote.id === 'string' && rawNote.id.trim() ? rawNote.id.trim() : `note_${i + 1}`;
-    if (usedNoteIds.has(noteId)) {
-      let suffix = 2;
-      while (usedNoteIds.has(`${noteId}_${suffix}`)) suffix += 1;
-      noteId = `${noteId}_${suffix}`;
-    }
-    usedNoteIds.add(noteId);
-
-    const note: NoteEvent = {
-      id: noteId,
-      midi,
-      step,
-      duration,
-      velocity,
+  let customDrums: DrumStepPattern | undefined;
+  if (isPlainObject(input.customDrums)) {
+    const cleanSteps = (arr: unknown): number[] =>
+      Array.isArray(arr)
+        ? Array.from(
+            new Set(
+              arr
+                .filter((s): s is number => typeof s === 'number' && Number.isFinite(s))
+                .map((s) => clampNumber(Math.round(s), 0, 15))
+            )
+          ).sort((a, b) => a - b)
+        : [];
+    const validKinds = new Set<DrumKind>(['kick', 'snare', 'hat', 'clap']);
+    const fillSteps = Array.isArray(input.customDrums.fillSteps)
+      ? input.customDrums.fillSteps
+          .filter(
+            (f): f is { kind: DrumKind; step: number } =>
+              isPlainObject(f) &&
+              typeof f.kind === 'string' &&
+              validKinds.has(f.kind as DrumKind) &&
+              typeof f.step === 'number' &&
+              Number.isFinite(f.step)
+          )
+          .map((f) => ({ kind: f.kind, step: clampNumber(Math.round(f.step), 12, 15) }))
+      : undefined;
+    customDrums = {
+      kicks: cleanSteps(input.customDrums.kicks),
+      snares: cleanSteps(input.customDrums.snares),
+      hats: cleanSteps(input.customDrums.hats),
+      claps: cleanSteps(input.customDrums.claps),
+      fillEnabled: typeof input.customDrums.fillEnabled === 'boolean' ? input.customDrums.fillEnabled : false,
+      fillSteps,
     };
-    if (typeof rawNote.origin === 'string' && VALID_ORIGINS.has(rawNote.origin as NoteOrigin)) {
-      note.origin = rawNote.origin as NoteOrigin;
-    }
-    sanitizedNotes.push(note);
   }
-
-  sanitizedNotes.sort((a, b) => a.step - b.step || a.midi - b.midi);
 
   return {
     ok: true,
@@ -404,6 +445,9 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
       },
       baked,
       bakedMelody: sanitizedNotes,
+      ...(sanitizedBass ? { bakedBass: sanitizedBass } : {}),
+      ...(sanitizedChords ? { bakedChords: sanitizedChords } : {}),
+      ...(customDrums ? { customDrums } : {}),
     },
     warnings: Array.from(new Set(warnings)),
   };

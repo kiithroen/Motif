@@ -96,6 +96,7 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
       kick: 'kick',
       snare: 'snare-m',
       hat: 'hhclosed-short',
+      clap: 'clap',
     },
   };
 }
@@ -682,6 +683,28 @@ export class MotifAudioEngine {
       noise.stop(t0 + 0.16);
       tone.start(t0);
       tone.stop(t0 + 0.1);
+      return;
+    }
+
+    if (kind === 'clap') {
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.noiseBuf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1450;
+      bp.Q.value = 1.4;
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.0001, t0);
+      cg.gain.linearRampToValueAtTime(velocity * 0.22, t0 + 0.002);
+      cg.gain.exponentialRampToValueAtTime(0.03, t0 + 0.015);
+      cg.gain.linearRampToValueAtTime(velocity * 0.2, t0 + 0.022);
+      cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
+      noise.connect(bp);
+      bp.connect(cg);
+      cg.connect(this.drumBus);
+      this.registerFallbackVoice([noise], [cg]);
+      noise.start(t0);
+      noise.stop(t0 + 0.15);
       return;
     }
 

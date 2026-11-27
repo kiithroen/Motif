@@ -179,4 +179,39 @@ describe('3-tier song compiler', () => {
     expect(bar0BassFirst!.midi % 12).toBe(0); // C
     expect(bar0BassSecond!.midi % 12).toBe(11); // B (G/B)
   });
+
+  it('compiles customDrums with fill-in, bakedBass, bakedChords, and polyphonic melody', () => {
+    const p = createDefaultProject();
+    p.bars = 4;
+    p.baked = true;
+    p.bakedMelody = [
+      { id: 'm1', midi: 64, step: 0, duration: 4, velocity: 0.8, origin: 'user' },
+      { id: 'm2', midi: 67, step: 0, duration: 4, velocity: 0.8, origin: 'user' },
+    ];
+    p.bakedBass = [{ id: 'b1', midi: 36, step: 0, duration: 4, velocity: 0.8, origin: 'user' }];
+    p.bakedChords = [
+      { id: 'c1', midi: 60, step: 0, duration: 8, velocity: 0.7, origin: 'user' },
+      { id: 'c2', midi: 64, step: 0, duration: 8, velocity: 0.7, origin: 'user' },
+    ];
+    p.customDrums = {
+      kicks: [0, 8],
+      snares: [4, 12],
+      hats: [0, 4, 8, 12],
+      claps: [4],
+      fillEnabled: true,
+      fillSteps: [
+        { kind: 'snare', step: 12 },
+        { kind: 'clap', step: 15 },
+      ],
+    };
+
+    const compiled = compileSong(p);
+    // 폴리포니 멜로디 두 음이 모두 보존된다.
+    expect(compiled.melody.filter((n) => n.step === 0).map((n) => n.midi)).toEqual([64, 67]);
+    expect(compiled.bass).toHaveLength(1);
+    expect(compiled.chords).toHaveLength(2);
+    // 4마디째(bar=3, step>=48)에는 fillSteps(12+48=60 snare, 15+48=63 clap)가 적용된다.
+    expect(compiled.drums.some((d) => d.kind === 'clap' && d.step === 4)).toBe(true);
+    expect(compiled.drums.some((d) => d.kind === 'clap' && d.step === 63)).toBe(true);
+  });
 });
