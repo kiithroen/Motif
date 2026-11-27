@@ -48,12 +48,14 @@ import {
   type ChordInversion,
   type DegreeSymbol,
   type HarmonicRole,
+  type ScaleMode,
   KOREAN_SOLFEGE,
   classifyPitch,
   getScalePitchClasses,
   isWhiteKey,
   koreanNoteName,
   noteName,
+  resolveChord,
   wrapPc,
 } from '../core/theory';
 
@@ -650,9 +652,16 @@ const CHORD_INVERSION_OPTIONS: Array<{ value: ChordInversion; labelKo: string }>
   { value: 2, labelKo: '2전위' },
 ];
 
-function renderChordSelectOptions(selectedDegree: DegreeSymbol): string {
+function renderChordSelectOptions(
+  selectedDegree: DegreeSymbol,
+  keyRoot: number,
+  mode: ScaleMode
+): string {
   return PRESETS.availableDegrees
-    .map((deg) => `<option value="${deg}"${deg === selectedDegree ? ' selected' : ''}>${deg}</option>`)
+    .map((deg) => {
+      const chordName = resolveChord(deg, keyRoot, mode).baseSymbol;
+      return `<option value="${deg}"${deg === selectedDegree ? ' selected' : ''}>${deg} · ${chordName}</option>`;
+    })
     .join('');
 }
 
@@ -733,7 +742,7 @@ function renderL2Body(
         ? `
           <div class="l2-half-chord-row">
             <span class="l2-half-label">3~4박</span>
-            <select class="sel-half-degree" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 도수">${renderChordSelectOptions(slot.halfDegree!)}</select>
+            <select class="sel-half-degree" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 도수">${renderChordSelectOptions(slot.halfDegree!, project.keyRoot, project.mode)}</select>
             <select class="sel-half-ext" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 확장">${renderExtensionOptions(slot.halfExtension ?? 'triad')}</select>
             <select class="sel-half-inv" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 전위">${renderInversionOptions(slot.halfInversion ?? 0)}</select>
           </div>
@@ -746,7 +755,7 @@ function renderL2Body(
             <button class="btn btn-chip btn-split-chord${hasHalf ? ' active' : ''}" data-split-bar="${idx}" type="button" title="한 마디를 전반/후반 2박(2코드)으로 나눈다">2코드</button>
           </div>
           <div class="l2-chord-controls">
-            <select class="sel-degree" data-bar="${idx}" aria-label="${idx + 1}마디 코드 도수">${renderChordSelectOptions(slot.degree)}</select>
+            <select class="sel-degree" data-bar="${idx}" aria-label="${idx + 1}마디 코드 도수">${renderChordSelectOptions(slot.degree, project.keyRoot, project.mode)}</select>
             <select class="sel-ext" data-bar="${idx}" aria-label="${idx + 1}마디 코드 확장">${renderExtensionOptions(slot.extension ?? 'triad')}</select>
             <select class="sel-inv" data-bar="${idx}" aria-label="${idx + 1}마디 코드 전위">${renderInversionOptions(slot.inversion ?? 0)}</select>
           </div>

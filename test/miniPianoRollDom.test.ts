@@ -51,6 +51,13 @@ describe('miniPianoRoll and visualDiff integration', () => {
       onPreviewModifier: vi.fn(),
     });
     expect(container.querySelector('.mini-pr-card')).not.toBeNull();
+    const degreeOptions = Array.from(
+      container.querySelectorAll<HTMLOptionElement>('.sel-degree[data-bar="0"] option')
+    );
+    expect(degreeOptions.length).toBeGreaterThan(0);
+    for (const opt of degreeOptions) {
+      expect(opt.textContent).toContain(`${opt.value} · `);
+    }
   });
 
   it('renders visualDiff badge and removed ghost notes in L3', () => {
