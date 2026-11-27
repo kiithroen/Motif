@@ -35,8 +35,22 @@ import {
   type TrackKey,
   type TrackVolumes,
   cloneProject,
-  createDefaultProject,
 } from './core/model';
+import {
+  type SongLibraryState,
+  buildBackupFilename,
+  createSongSlot,
+  deleteSongSlot,
+  duplicateSongSlot,
+  getActiveSlot,
+  importBackupIntoLibrary,
+  renameSongSlot,
+  sanitizeLibraryState,
+  selectSongSlot,
+  serializeLibraryBackup,
+  serializeSongBackup,
+  updateActiveSlotProject,
+} from './core/projectLibrary';
 import {
   type LoopBarRange,
   type MetronomeState,
@@ -56,8 +70,10 @@ import { type GeminiCoachUiState, renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { type ProjectChangeOptions, renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
+import { type SongLibraryUiState, renderSongLibraryBar } from './ui/songLibraryBar';
 
 const STORAGE_KEY = 'motif_project_v1';
+const LIBRARY_STORAGE_KEY = 'motif_library_v1';
 const LESSON_STORAGE_KEY = 'motif_lessons_v1';
 const BASICS_STORAGE_KEY = 'motif_basics_v1';
 const MODE_STORAGE_KEY = 'motif_mode_v1';
@@ -143,25 +159,45 @@ function saveTrackVolumes(volumes: TrackVolumes): void {
   }
 }
 
-function loadInitialProject(): SongProject {
+function loadInitialLibrary(): SongLibraryState {
+  let rawLibrary: unknown = null;
+  let legacyProject: unknown = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as SongProject;
-      if (parsed && parsed.blocks && parsed.chain) return parsed;
-    }
+    const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (raw) rawLibrary = JSON.parse(raw);
   } catch {
-    // 저장 데이터 파싱 실패 시 기본 프로젝트로 시작한다.
+    // 저장 데이터 파싱 실패 시 레거시 또는 기본 라이브러리로 복구한다.
   }
-  return createDefaultProject();
+  if (!rawLibrary) {
+    try {
+      const legacyRaw = localStorage.getItem(STORAGE_KEY);
+      if (legacyRaw) legacyProject = JSON.parse(legacyRaw);
+    } catch {
+      // 레거시 파싱 실패는 무시한다.
+    }
+  }
+  return sanitizeLibraryState(rawLibrary, legacyProject);
 }
 
-function saveProject(project: SongProject): void {
+function saveLibrary(library: SongLibraryState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(getActiveSlot(library).project));
   } catch {
     // 프라이빗 모드 등 저장 불가 환경은 조용히 건너뛴다.
   }
+}
+
+function downloadTextFile(filename: string, content: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function loadProgress(key: string, validList: Array<{ id: string }>): ProgressStore {
@@ -218,7 +254,12 @@ function init(): void {
   let chordView: ChordInstrument = loadInitialChordView();
   let basicsScreen: 'map' | 'lesson' = 'map';
   let lessonScreen: 'map' | 'lesson' = 'map';
-  let freeProject = loadInitialProject();
+  let songLibrary = loadInitialLibrary();
+  const songLibraryUiState: SongLibraryUiState = {
+    drawerOpen: false,
+    confirmDeleteSlotId: null,
+    notice: null,
+  };
   let basicsProgress = loadProgress(BASICS_STORAGE_KEY, BASIC_LESSONS);
   let lessonProgress = loadProgress(LESSON_STORAGE_KEY, LESSONS);
   let showBasicsHint = false;
@@ -230,7 +271,7 @@ function init(): void {
       ? createBasicLessonProject(basicsProgress.activeLessonId)
       : appMode === 'lesson'
         ? createLessonProject(lessonProgress.activeLessonId)
-        : cloneProject(freeProject);
+        : cloneProject(getActiveSlot(songLibrary).project);
   let compiled = compileSong(project, chordView);
   let activeStep = -1;
   let selectedDuration = PRESETS.defaults.noteDurationSteps;
@@ -291,6 +332,7 @@ function init(): void {
       <section class="basics-root" id="lesson-map-root" hidden></section>
       <div class="sandbox-root" id="sandbox-root" hidden>
         <section class="lesson-banner" id="lesson-banner" hidden></section>
+        <section class="song-library-bar" id="song-library-bar" hidden></section>
         <section class="chord-strip" id="chord-strip"></section>
         <main class="workspace-grid">
           <section class="main-panel" id="main-panel"></section>
@@ -305,6 +347,7 @@ function init(): void {
   const lessonMapRootEl = document.getElementById('lesson-map-root')!;
   const sandboxRootEl = document.getElementById('sandbox-root')!;
   const lessonBannerEl = document.getElementById('lesson-banner')!;
+  const songLibraryEl = document.getElementById('song-library-bar')!;
   const stripEl = document.getElementById('chord-strip')!;
   const mainEl = document.getElementById('main-panel')!;
   const coachEl = document.getElementById('coach-panel')!;
@@ -392,6 +435,7 @@ function init(): void {
     showBasicsHint = false;
     showLessonHint = false;
     selectedPickBar = 0;
+    songLibraryUiState.confirmDeleteSlotId = null;
     if (mode === 'basics') {
       basicsScreen = 'map';
       loadWorkspaceProject(createBasicLessonProject(basicsProgress.activeLessonId));
@@ -399,7 +443,7 @@ function init(): void {
       lessonScreen = 'map';
       loadWorkspaceProject(createLessonProject(lessonProgress.activeLessonId));
     } else {
-      loadWorkspaceProject(freeProject);
+      loadWorkspaceProject(getActiveSlot(songLibrary).project);
     }
   }
 
@@ -444,14 +488,31 @@ function init(): void {
     selectLesson(picked);
   }
 
-  function openProjectInFreeSketch(source: SongProject): void {
+  function openProjectInFreeSketch(source: SongProject, suggestedName?: string): void {
     const next = cloneProject(source);
     next.activeLayer = 'L3';
-    freeProject = next;
-    saveProject(freeProject);
+    const created = createSongSlot(songLibrary, {
+      name: suggestedName,
+      project: next,
+    });
+    if (created.ok) {
+      songLibrary = created.library;
+      songLibraryUiState.notice = {
+        kind: 'info',
+        text: `'${created.slot.name}' 슬롯을 새로 만들어 열었다.`,
+      };
+    } else {
+      songLibrary = updateActiveSlotProject(songLibrary, next);
+      songLibraryUiState.notice = {
+        kind: 'info',
+        text: `슬롯이 가득 차서 현재 슬롯('${getActiveSlot(songLibrary).name}')에 열어두었다.`,
+      };
+    }
+    songLibraryUiState.confirmDeleteSlotId = null;
+    saveLibrary(songLibrary);
     appMode = 'free';
     saveMode('free');
-    loadWorkspaceProject(freeProject);
+    loadWorkspaceProject(getActiveSlot(songLibrary).project);
   }
 
   function updateState(
@@ -499,8 +560,8 @@ function init(): void {
     project = resolvedNext;
     compiled = compileSong(project, chordView);
     if (appMode === 'free') {
-      freeProject = cloneProject(project);
-      saveProject(freeProject);
+      songLibrary = updateActiveSlotProject(songLibrary, project);
+      saveLibrary(songLibrary);
     }
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     if (!recompileAudioOnly) {
@@ -713,7 +774,7 @@ function init(): void {
         <div class="ctrl-group">
           <span>BPM</span>
           <strong id="bpm-val">${project.bpm}</strong>
-          <input id="sl-bpm" type="range" min="60" max="150" step="2" value="${project.bpm}" style="width:60px;" />
+          <input id="sl-bpm" type="range" min="${PRESETS.library.bpmMin}" max="${PRESETS.library.bpmMax}" step="2" value="${project.bpm}" style="width:60px;" />
         </div>
         <div class="ctrl-group">
           <span>선율 악기</span>
@@ -1083,7 +1144,7 @@ function init(): void {
         onAuditionChordWithNote: auditionChordWithNote,
         onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, chordView),
         onGoToMissions: () => switchMode('lesson'),
-        onOpenInFreeSketch: () => openProjectInFreeSketch(project),
+        onOpenInFreeSketch: () => openProjectInFreeSketch(project, `${lesson.titleKo} 편곡`),
         onSeekBar: seekToBar,
         onLoopRangeChange: setLoopRange,
       }
@@ -1262,6 +1323,146 @@ function init(): void {
     });
   }
 
+  function renderSongLibrarySection(): void {
+    if (appMode !== 'free') {
+      songLibraryEl.hidden = true;
+      songLibraryEl.innerHTML = '';
+      return;
+    }
+    songLibraryEl.hidden = false;
+    renderSongLibraryBar(songLibraryEl, songLibrary, songLibraryUiState, {
+      onSelectSlot: (slotId) => {
+        if (slotId === songLibrary.activeSlotId) return;
+        songLibrary = selectSongSlot(songLibrary, slotId);
+        songLibraryUiState.confirmDeleteSlotId = null;
+        songLibraryUiState.notice = null;
+        saveLibrary(songLibrary);
+        loadWorkspaceProject(getActiveSlot(songLibrary).project);
+      },
+      onCreateSlot: () => {
+        const res = createSongSlot(songLibrary);
+        if (!res.ok) {
+          songLibraryUiState.notice = { kind: 'error', text: res.error };
+          renderSongLibrarySection();
+          return;
+        }
+        songLibrary = res.library;
+        songLibraryUiState.confirmDeleteSlotId = null;
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `'${res.slot.name}' 새 곡 슬롯을 만들었다.`,
+        };
+        saveLibrary(songLibrary);
+        loadWorkspaceProject(getActiveSlot(songLibrary).project);
+      },
+      onDuplicateSlot: (slotId) => {
+        const res = duplicateSongSlot(songLibrary, slotId);
+        if (!res.ok) {
+          songLibraryUiState.notice = { kind: 'error', text: res.error };
+          renderSongLibrarySection();
+          return;
+        }
+        songLibrary = res.library;
+        songLibraryUiState.confirmDeleteSlotId = null;
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `'${res.slot.name}' 슬롯으로 복제했다.`,
+        };
+        saveLibrary(songLibrary);
+        loadWorkspaceProject(getActiveSlot(songLibrary).project);
+      },
+      onRenameSlot: (slotId, rawName) => {
+        songLibrary = renameSongSlot(songLibrary, slotId, rawName);
+        saveLibrary(songLibrary);
+        renderSongLibrarySection();
+      },
+      onRequestDeleteSlot: (slotId) => {
+        songLibraryUiState.confirmDeleteSlotId = slotId;
+        renderSongLibrarySection();
+      },
+      onConfirmDeleteSlot: (slotId) => {
+        const targetName = songLibrary.slots.find((s) => s.id === slotId)?.name ?? '슬롯';
+        const prevActiveId = songLibrary.activeSlotId;
+        const res = deleteSongSlot(songLibrary, slotId);
+        if (!res.ok) {
+          songLibraryUiState.confirmDeleteSlotId = null;
+          songLibraryUiState.notice = { kind: 'error', text: res.error };
+          renderSongLibrarySection();
+          return;
+        }
+        songLibrary = res.library;
+        songLibraryUiState.confirmDeleteSlotId = null;
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `'${targetName}' 슬롯을 삭제했다.`,
+        };
+        saveLibrary(songLibrary);
+        if (prevActiveId === slotId) {
+          loadWorkspaceProject(getActiveSlot(songLibrary).project);
+        } else {
+          renderSongLibrarySection();
+        }
+      },
+      onCancelDeleteSlot: () => {
+        songLibraryUiState.confirmDeleteSlotId = null;
+        renderSongLibrarySection();
+      },
+      onToggleDrawer: () => {
+        songLibraryUiState.drawerOpen = !songLibraryUiState.drawerOpen;
+        songLibraryUiState.confirmDeleteSlotId = null;
+        renderSongLibrarySection();
+      },
+      onExportSong: (slotId) => {
+        const slot = songLibrary.slots.find((s) => s.id === slotId) ?? getActiveSlot(songLibrary);
+        const json = serializeSongBackup(slot);
+        downloadTextFile(buildBackupFilename(slot.name, 'song'), json, 'application/json;charset=utf-8');
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `'${slot.name}' 곡을 JSON 파일로 저장했다.`,
+        };
+        renderSongLibrarySection();
+      },
+      onExportLibrary: () => {
+        const json = serializeLibraryBackup(songLibrary);
+        downloadTextFile(
+          buildBackupFilename('motif_library_backup', 'library'),
+          json,
+          'application/json;charset=utf-8'
+        );
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `전체 ${songLibrary.slots.length}개 곡 슬롯 백업 JSON을 저장했다.`,
+        };
+        renderSongLibrarySection();
+      },
+      onImportJsonText: (jsonText) => {
+        const res = importBackupIntoLibrary(songLibrary, jsonText);
+        if (!res.ok) {
+          songLibraryUiState.notice = { kind: 'error', text: res.error };
+          renderSongLibrarySection();
+          return;
+        }
+        songLibrary = res.library;
+        songLibraryUiState.confirmDeleteSlotId = null;
+        const warningNote = res.warnings.length > 0 ? ` (${res.warnings[0]})` : '';
+        songLibraryUiState.notice = {
+          kind: 'info',
+          text: `${res.importedCount}개 곡 슬롯을 불러왔다.${warningNote}`,
+        };
+        saveLibrary(songLibrary);
+        loadWorkspaceProject(getActiveSlot(songLibrary).project);
+      },
+      onImportError: (message) => {
+        songLibraryUiState.notice = { kind: 'error', text: message };
+        renderSongLibrarySection();
+      },
+      onDismissNotice: () => {
+        songLibraryUiState.notice = null;
+        renderSongLibrarySection();
+      },
+    });
+  }
+
   function renderAll(): void {
     const report = analyzeSong(compiled, project);
 
@@ -1296,6 +1497,7 @@ function init(): void {
     lessonMapRootEl.hidden = true;
     sandboxRootEl.hidden = false;
     syncLessonBanner(report);
+    renderSongLibrarySection();
     renderTopControls();
     renderDynamicParts();
     renderCoachSection(report);

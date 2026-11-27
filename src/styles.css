@@ -2018,3 +2018,174 @@ button, select, input {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
+
+.song-library-bar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.song-library-bar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.song-library-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.song-library-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 6px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.song-slot-select,
+.song-name-input {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+
+.song-slot-select {
+  max-width: 240px;
+  cursor: pointer;
+}
+
+.song-slot-select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.song-name-input {
+  width: 190px;
+}
+
+.song-slot-select:focus,
+.song-name-input:focus {
+  border-color: var(--accent);
+}
+
+.song-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-danger {
+  background: rgba(251, 113, 133, 0.16);
+  border-color: var(--red);
+  color: #fecdd3;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(251, 113, 133, 0.28);
+  border-color: var(--red);
+}
+
+.song-library-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.song-library-notice.info {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--text);
+}
+
+.song-library-notice.error {
+  background: rgba(251, 113, 133, 0.14);
+  border: 1px solid rgba(251, 113, 133, 0.42);
+  color: #fecdd3;
+}
+
+.song-slot-drawer {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.song-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.song-slot-card {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.song-slot-card.active {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), var(--panel-alt));
+}
+
+.song-slot-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.song-slot-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-slot-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.song-slot-card-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.song-slot-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}

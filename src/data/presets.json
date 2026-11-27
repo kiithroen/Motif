@@ -245,5 +245,18 @@
       "accentVelocity": 0.72,
       "beatVelocity": 0.45
     }
+  },
+  "library": {
+    "schemaVersion": 1,
+    "maxSlots": 20,
+    "maxNameLength": 40,
+    "defaultSlotName": "스케치 1",
+    "untitledPrefix": "스케치",
+    "duplicateSuffix": "복사본",
+    "importedDefaultName": "불러온 스케치",
+    "bpmMin": 60,
+    "bpmMax": 150,
+    "midiMin": 24,
+    "midiMax": 108
   }
 }

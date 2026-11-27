@@ -141,6 +141,20 @@ export interface PlaybackPresets {
   };
 }
 
+export interface LibraryPresets {
+  schemaVersion: number;
+  maxSlots: number;
+  maxNameLength: number;
+  defaultSlotName: string;
+  untitledPrefix: string;
+  duplicateSuffix: string;
+  importedDefaultName: string;
+  bpmMin: number;
+  bpmMax: number;
+  midiMin: number;
+  midiMax: number;
+}
+
 export interface PresetsData {
   defaults: {
     keyRoot: number;
@@ -170,6 +184,7 @@ export interface PresetsData {
     maxSameDurationRatio: number;
   };
   playback: PlaybackPresets;
+  library: LibraryPresets;
 }
 
 export const PRESETS = presetsRaw as PresetsData;
