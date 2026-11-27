@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "android:sync": "npm run build && npx cap sync android",
-    "android:apk": "npm run android:sync && cmd /c \"cd android && gradlew.bat assembleDebug\""
+    "android:apk": "npm run android:sync && cmd /c \"cd android && gradlew.bat assembleDebug\"",
+    "android:release": "npm run android:sync && cmd /c \"cd android && gradlew.bat assembleRelease bundleRelease\""
   },
   "devDependencies": {
     "@capacitor/android": "^8.6.3",
