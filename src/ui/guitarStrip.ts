@@ -97,7 +97,7 @@ export function buildChordDiagramSvg(chord: ResolvedChord): string {
   }
   const fretTag = base > 1 ? `<text x="2" y="${yStart + 9}" font-size="8" fill="#fbbf24">${base}f</text>` : '';
 
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="${chord.symbol} 기타 운지표">${fretTag}${lines}${markers}</svg>`;
+  return `<svg class="chord-svg-guitar" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="${chord.symbol} 기타 운지표">${fretTag}${lines}${markers}</svg>`;
 }
 
 export function renderGuitarStrip(

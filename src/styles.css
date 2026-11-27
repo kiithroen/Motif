@@ -3168,3 +3168,7 @@ input[type='range'] {
   background: rgba(251, 113, 133, 0.2);
   border: 1.5px dashed #fb7185;
 }
+
+.chord-strip .chord-card svg.chord-svg-guitar {
+  height: 58px;
+}
