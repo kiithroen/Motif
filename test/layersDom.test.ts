@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { compileSong } from '../src/core/compiler';
+import { compileSong, resizeProjectBars } from '../src/core/compiler';
 import { PRESETS, type SongProject, createDefaultProject } from '../src/core/model';
 import {
   clearPianoRollEditState,
@@ -1096,5 +1096,53 @@ describe('L3 PianoRoll pointer interactions', () => {
     expect(container.querySelectorAll('.pr-note.selected').length).toBe(0);
     container.querySelector<HTMLButtonElement>('#btn-pr-select-all')!.click();
     expect(container.querySelectorAll('.pr-note.selected').length).toBe(2);
+  });
+
+  it('renders 16-bar A/B section tabs, split-bar chord toggle, and L3 4-bar jump bar', () => {
+    const project = resizeProjectBars(createDefaultProject(), 16);
+    project.activeLayer = 'L2';
+    let compiled = compileSong(project);
+    const onProjectChange = vi.fn((next: SongProject) => {
+      Object.assign(project, next);
+      compiled = compileSong(project);
+    });
+
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+      onLoopRangeChange: vi.fn(),
+      onSeekBar: vi.fn(),
+    });
+
+    expect(container.querySelectorAll('[data-l2-section]').length).toBe(3);
+    expect(container.querySelectorAll('.l2-chord-slot').length).toBe(16);
+
+    // B 파트 탭 전환 시 9~16마디(8개)만 표시된다.
+    container.querySelector<HTMLButtonElement>('[data-l2-section="B"]')!.click();
+    expect(container.querySelectorAll('.l2-chord-slot').length).toBe(8);
+
+    // 9마디(bar=8) 2코드 분할 토글
+    container.querySelector<HTMLButtonElement>('.btn-split-chord[data-split-bar="8"]')!.click();
+    expect(project.chain.chords[8].halfDegree).toBeDefined();
+
+    // L3 전환 시 4마디 빠른 점프 바(1~4, 5~8, 9~12, 13~16) 표시 및 스크롤 이동
+    project.activeLayer = 'L3';
+    compiled = compileSong(project);
+    renderLayerEditor(container, project, compiled, -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const jumpBtns = container.querySelectorAll<HTMLButtonElement>('[data-jump-bar]');
+    expect(jumpBtns.length).toBe(4);
+    const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll')!;
+    jumpBtns[2].click(); // 9~12 (startBar = 8)
+    expect(scrollEl.scrollLeft).toBeGreaterThan(0);
   });
 });

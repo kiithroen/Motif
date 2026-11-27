@@ -1,5 +1,10 @@
 import type { CoachVisualDiff } from '../core/coachPatch';
-import { type CompiledSong, previewModifierDiff } from '../core/compiler';
+import {
+  type CompiledSong,
+  duplicateAToBWithVariation,
+  previewModifierDiff,
+  resolveChordAtStep,
+} from '../core/compiler';
 import {
   PRESETS,
   type ChordInstrument,
@@ -30,6 +35,9 @@ import {
   selectLoopBarRange,
 } from '../core/playbackControl';
 import {
+  type ChordExtension,
+  type ChordInversion,
+  type DegreeSymbol,
   type HarmonicRole,
   KOREAN_SOLFEGE,
   classifyPitch,
@@ -87,6 +95,8 @@ interface PianoRollMetrics {
 let containerSelectionMap = new WeakMap<HTMLElement, Set<string>>();
 let containerToolModeMap = new WeakMap<HTMLElement, PianoRollToolMode>();
 let containerZoomMap = new WeakMap<HTMLElement, string>();
+type L2SectionTab = 'all' | 'A' | 'B';
+let containerSectionTabMap = new WeakMap<HTMLElement, L2SectionTab>();
 const activeKeyHandlers = new Map<HTMLElement, (e: KeyboardEvent) => void>();
 const handledKeyEvents = new WeakSet<KeyboardEvent>();
 let sharedClipboard: NoteClipboard | null = null;
@@ -334,10 +344,15 @@ export function renderLayerEditor(
     containerSelectionMap.delete(container);
     detachContainerKeyHandler(container);
     const chordView = callbacks.chordView ?? 'piano';
+    const sectionTab: L2SectionTab =
+      project.bars === 16 ? (containerSectionTabMap.get(container) ?? 'all') : 'all';
     container.innerHTML =
-      tabsHtml + renderL2Body(project, compiled, preserveBakedOnChordChange, chordView);
+      tabsHtml +
+      renderL2Body(project, compiled, preserveBakedOnChordChange, chordView, sectionTab, callbacks.loopRange);
     wireTabs(container, project, callbacks);
-    wireL2Events(container, project, callbacks, preserveBakedOnChordChange);
+    wireL2Events(container, project, callbacks, preserveBakedOnChordChange, () =>
+      renderLayerEditor(container, project, compiled, activeStep, callbacks)
+    );
     return;
   }
 
@@ -534,11 +549,44 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
   });
 }
 
+const CHORD_EXTENSION_OPTIONS: Array<{ value: ChordExtension; labelKo: string }> = [
+  { value: 'triad', labelKo: '기본' },
+  { value: '7', labelKo: '7' },
+  { value: 'sus4', labelKo: 'sus4' },
+  { value: 'add9', labelKo: 'add9' },
+];
+
+const CHORD_INVERSION_OPTIONS: Array<{ value: ChordInversion; labelKo: string }> = [
+  { value: 0, labelKo: '근음' },
+  { value: 1, labelKo: '1전위' },
+  { value: 2, labelKo: '2전위' },
+];
+
+function renderChordSelectOptions(selectedDegree: DegreeSymbol): string {
+  return PRESETS.availableDegrees
+    .map((deg) => `<option value="${deg}"${deg === selectedDegree ? ' selected' : ''}>${deg}</option>`)
+    .join('');
+}
+
+function renderExtensionOptions(selected: ChordExtension = 'triad'): string {
+  return CHORD_EXTENSION_OPTIONS.map(
+    (opt) => `<option value="${opt.value}"${opt.value === selected ? ' selected' : ''}>${opt.labelKo}</option>`
+  ).join('');
+}
+
+function renderInversionOptions(selected: ChordInversion = 0): string {
+  return CHORD_INVERSION_OPTIONS.map(
+    (opt) => `<option value="${opt.value}"${opt.value === selected ? ' selected' : ''}>${opt.labelKo}</option>`
+  ).join('');
+}
+
 function renderL2Body(
   project: SongProject,
   compiled: CompiledSong,
   preserveBakedOnChordChange: boolean,
-  chordView: ChordInstrument = 'piano'
+  chordView: ChordInstrument = 'piano',
+  sectionTab: L2SectionTab = 'all',
+  loopRange: LoopBarRange | null = null
 ): string {
   const hasBakedMelody = project.baked && project.bakedMelody.length > 0;
   const bakedGuardHtml = hasBakedMelody
@@ -560,17 +608,61 @@ function renderL2Body(
     `
     : '';
 
+  const isLoopA = Boolean(loopRange && loopRange.startBar === 0 && loopRange.endBar === 7);
+  const isLoopB = Boolean(loopRange && loopRange.startBar === 8 && loopRange.endBar === 15);
+  const sectionBarHtml =
+    project.bars === 16
+      ? `
+        <div class="l2-section-bar">
+          <div class="l2-section-tabs" role="group" aria-label="16마디 섹션 선택">
+            <button class="btn btn-chip${sectionTab === 'all' ? ' active' : ''}" data-l2-section="all" type="button">전체 (1~16)</button>
+            <button class="btn btn-chip${sectionTab === 'A' ? ' active' : ''}" data-l2-section="A" type="button">A 파트 (1~8)</button>
+            <button class="btn btn-chip${sectionTab === 'B' ? ' active' : ''}" data-l2-section="B" type="button">B 파트 (9~16)</button>
+          </div>
+          <div class="l2-section-actions">
+            <button class="btn btn-chip${isLoopA ? ' active' : ''}" id="btn-l2-loop-a" type="button">A 반복</button>
+            <button class="btn btn-chip${isLoopB ? ' active' : ''}" id="btn-l2-loop-b" type="button">B 반복</button>
+            <button class="btn btn-chip${!loopRange ? ' active' : ''}" id="btn-l2-loop-all" type="button">전체 연속</button>
+            <button class="btn btn-chip btn-accent-chip" id="btn-l2-dup-ab" type="button" title="1~8마디(A 파트)를 9~16마디(B 파트)로 복제하고 클라이맥스 변주를 적용한다">A→B 복제·변주</button>
+          </div>
+        </div>
+      `
+      : '';
+
+  const startBar = sectionTab === 'B' ? 8 : 0;
+  const endBar = sectionTab === 'A' ? 8 : project.bars;
+
   const chordSlots = project.chain.chords
     .slice(0, project.bars)
     .map((slot, idx) => {
+      if (idx < startBar || idx >= endBar) return '';
       const rc = compiled.resolvedChords[idx];
-      const opts = PRESETS.availableDegrees
-        .map((deg) => `<option value="${deg}"${deg === slot.degree ? ' selected' : ''}>${deg}</option>`)
-        .join('');
+      const halfRc = compiled.resolvedHalfChords?.[idx] ?? null;
+      const hasHalf = Boolean(slot.halfDegree);
+      const titleSymbol = halfRc ? `${rc?.symbol ?? ''} → ${halfRc.symbol}` : rc?.symbol ?? '';
+      const partTag = project.bars === 16 ? (idx < 8 ? 'A' : 'B') : '';
+      const halfRowHtml = hasHalf
+        ? `
+          <div class="l2-half-chord-row">
+            <span class="l2-half-label">3~4박</span>
+            <select class="sel-half-degree" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 도수">${renderChordSelectOptions(slot.halfDegree!)}</select>
+            <select class="sel-half-ext" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 확장">${renderExtensionOptions(slot.halfExtension ?? 'triad')}</select>
+            <select class="sel-half-inv" data-bar="${idx}" aria-label="${idx + 1}마디 후반 코드 전위">${renderInversionOptions(slot.halfInversion ?? 0)}</select>
+          </div>
+        `
+        : '';
       return `
-        <div class="l2-chord-slot">
-          <span>${idx + 1}마디 (${rc?.symbol ?? ''})</span>
-          <select class="sel-degree" data-bar="${idx}">${opts}</select>
+        <div class="l2-chord-slot${hasHalf ? ' is-split' : ''}">
+          <div class="l2-chord-slot-head">
+            <span>${partTag ? `[${partTag}] ` : ''}${idx + 1}마디 (${titleSymbol})</span>
+            <button class="btn btn-chip btn-split-chord${hasHalf ? ' active' : ''}" data-split-bar="${idx}" type="button" title="한 마디를 전반/후반 2박(2코드)으로 나눈다">2코드</button>
+          </div>
+          <div class="l2-chord-controls">
+            <select class="sel-degree" data-bar="${idx}" aria-label="${idx + 1}마디 코드 도수">${renderChordSelectOptions(slot.degree)}</select>
+            <select class="sel-ext" data-bar="${idx}" aria-label="${idx + 1}마디 코드 확장">${renderExtensionOptions(slot.extension ?? 'triad')}</select>
+            <select class="sel-inv" data-bar="${idx}" aria-label="${idx + 1}마디 코드 전위">${renderInversionOptions(slot.inversion ?? 0)}</select>
+          </div>
+          ${halfRowHtml}
         </div>
       `;
     })
@@ -608,8 +700,9 @@ function renderL2Body(
     .join('');
 
   return `
-    <p class="section-title">마디별 코드 도수 직접 바꾸기 (L1 진행이 펼쳐진 상태)</p>
+    <p class="section-title">마디별 코드 도수·보이싱 직접 바꾸기 (L1 진행이 펼쳐진 상태)</p>
     ${bakedGuardHtml}
+    ${sectionBarHtml}
     <div class="l2-chords-editor">${chordSlots}</div>
     <p class="section-title">멜로디·화성 변형 체인 (켜고 끄며 차이 듣기)</p>
     <div class="modifier-list">${modCards}</div>
@@ -620,11 +713,50 @@ function wireL2Events(
   container: HTMLElement,
   project: SongProject,
   callbacks: LayerCallbacks,
-  preserveBakedOnChordChange: boolean
+  preserveBakedOnChordChange: boolean,
+  onRerenderView?: () => void
 ): void {
   let workingProject = cloneProject(project);
   let preserveBaked = preserveBakedOnChordChange;
   const modStartSnapshots = new Map<ModifierId, SongProject>();
+
+  const commitChordEdit = (next: SongProject): void => {
+    const keepBaked = Boolean(workingProject.baked && workingProject.bakedMelody.length > 0 && preserveBaked);
+    if (!keepBaked) {
+      next.baked = false;
+    }
+    workingProject = cloneProject(next);
+    callbacks.onProjectChange(next);
+  };
+
+  container.querySelectorAll<HTMLButtonElement>('[data-l2-section]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.l2Section as L2SectionTab;
+      containerSectionTabMap.set(container, tab);
+      onRerenderView?.();
+    });
+  });
+
+  container.querySelector('#btn-l2-loop-a')?.addEventListener('click', () => {
+    callbacks.onLoopRangeChange?.({ startBar: 0, endBar: 7 });
+    callbacks.onSeekBar?.(0);
+  });
+
+  container.querySelector('#btn-l2-loop-b')?.addEventListener('click', () => {
+    callbacks.onLoopRangeChange?.({ startBar: 8, endBar: 15 });
+    callbacks.onSeekBar?.(8);
+  });
+
+  container.querySelector('#btn-l2-loop-all')?.addEventListener('click', () => {
+    callbacks.onLoopRangeChange?.(null);
+  });
+
+  container.querySelector('#btn-l2-dup-ab')?.addEventListener('click', () => {
+    const next = duplicateAToBWithVariation(workingProject);
+    containerSectionTabMap.set(container, 'B');
+    workingProject = cloneProject(next);
+    callbacks.onProjectChange(next);
+  });
 
   const preserveChk = container.querySelector<HTMLInputElement>('#chk-preserve-baked');
   preserveChk?.addEventListener('change', () => {
@@ -645,14 +777,86 @@ function wireL2Events(
       const bar = Number(sel.dataset.bar);
       const next = cloneProject(workingProject);
       if (next.chain.chords[bar]) {
-        next.chain.chords[bar].degree = sel.value as SongProject['chain']['chords'][number]['degree'];
+        next.chain.chords[bar].degree = sel.value as DegreeSymbol;
       }
-      const keepBaked = Boolean(workingProject.baked && workingProject.bakedMelody.length > 0 && preserveBaked);
-      if (!keepBaked) {
-        next.baked = false;
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLSelectElement>('.sel-ext').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const bar = Number(sel.dataset.bar);
+      const next = cloneProject(workingProject);
+      if (next.chain.chords[bar]) {
+        const val = sel.value as ChordExtension;
+        next.chain.chords[bar].extension = val === 'triad' ? undefined : val;
       }
-      workingProject = cloneProject(next);
-      callbacks.onProjectChange(next);
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLSelectElement>('.sel-inv').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const bar = Number(sel.dataset.bar);
+      const next = cloneProject(workingProject);
+      if (next.chain.chords[bar]) {
+        const val = Number(sel.value) as ChordInversion;
+        next.chain.chords[bar].inversion = val === 0 ? undefined : val;
+      }
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('.btn-split-chord').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const bar = Number(btn.dataset.splitBar);
+      const next = cloneProject(workingProject);
+      const slot = next.chain.chords[bar];
+      if (slot) {
+        if (slot.halfDegree) {
+          delete slot.halfDegree;
+          delete slot.halfExtension;
+          delete slot.halfInversion;
+        } else {
+          slot.halfDegree = slot.degree === 'V' || slot.degree === 'V7' ? 'I' : 'V';
+        }
+      }
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLSelectElement>('.sel-half-degree').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const bar = Number(sel.dataset.bar);
+      const next = cloneProject(workingProject);
+      if (next.chain.chords[bar]) {
+        next.chain.chords[bar].halfDegree = sel.value as DegreeSymbol;
+      }
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLSelectElement>('.sel-half-ext').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const bar = Number(sel.dataset.bar);
+      const next = cloneProject(workingProject);
+      if (next.chain.chords[bar]) {
+        const val = sel.value as ChordExtension;
+        next.chain.chords[bar].halfExtension = val === 'triad' ? undefined : val;
+      }
+      commitChordEdit(next);
+    });
+  });
+
+  container.querySelectorAll<HTMLSelectElement>('.sel-half-inv').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const bar = Number(sel.dataset.bar);
+      const next = cloneProject(workingProject);
+      if (next.chain.chords[bar]) {
+        const val = Number(sel.value) as ChordInversion;
+        next.chain.chords[bar].halfInversion = val === 0 ? undefined : val;
+      }
+      commitChordEdit(next);
     });
   });
 
@@ -786,8 +990,7 @@ function computeLiveRole(
   midi: number,
   duration: number
 ): HarmonicRole {
-  const bar = Math.max(0, Math.min(compiled.resolvedChords.length - 1, Math.floor(step / 16)));
-  const rc = compiled.resolvedChords[bar];
+  const rc = resolveChordAtStep(compiled, step);
   return rc ? classifyPitch(midi, rc, project.keyRoot, project.mode, step % 16, duration) : 'passing';
 }
 
@@ -816,6 +1019,10 @@ function renderL3Body(
   const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
   const barWidth = 16 * stepW;
   const chordToneSets = compiled.resolvedChords.map((rc) => new Set(rc.pitchClasses));
+  const halfChordToneSets = (compiled.resolvedHalfChords ?? []).map((rc) =>
+    rc ? new Set(rc.pitchClasses) : null
+  );
+  const halfBarWidth = 8 * stepW;
   const totalBars = compiled.resolvedChords.length;
   const normalizedLoop = normalizeLoopRange(opts.loopRange, totalBars);
   const activeBar =
@@ -848,7 +1055,15 @@ function renderL3Body(
     gridRows += `<rect x="0" y="${y}" width="${svgW}" height="${rowH}" fill="${rowFill}" />`;
 
     for (let b = 0; b < compiled.resolvedChords.length; b++) {
-      if (chordToneSets[b]?.has(pc)) {
+      const halfSet = halfChordToneSets[b];
+      if (halfSet) {
+        if (chordToneSets[b]?.has(pc)) {
+          chordHighlights += `<rect x="${b * barWidth}" y="${y}" width="${halfBarWidth}" height="${rowH}" fill="rgba(52, 211, 153, 0.13)" />`;
+        }
+        if (halfSet.has(pc)) {
+          chordHighlights += `<rect x="${b * barWidth + halfBarWidth}" y="${y}" width="${halfBarWidth}" height="${rowH}" fill="rgba(52, 211, 153, 0.13)" />`;
+        }
+      } else if (chordToneSets[b]?.has(pc)) {
         chordHighlights += `<rect x="${b * barWidth}" y="${y}" width="${barWidth}" height="${rowH}" fill="rgba(52, 211, 153, 0.13)" />`;
       }
     }
@@ -867,7 +1082,9 @@ function renderL3Body(
 
   const barHeaderCells = compiled.resolvedChords
     .map((rc, idx) => {
+      const halfRc = compiled.resolvedHalfChords?.[idx] ?? null;
       const tones = rc.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
+      const chordDisplay = halfRc ? `${rc.symbol} → ${halfRc.symbol}` : `${rc.symbol} (${tones})`;
       const changedChord = hasCoachDiff ? changedChordMap.get(idx) : undefined;
       const inLoop = Boolean(
         normalizedLoop && idx >= normalizedLoop.startBar && idx <= normalizedLoop.endBar
@@ -892,7 +1109,7 @@ function renderL3Body(
         <div class="${cls}" data-bar="${idx}" style="width:${barWidth}px" title="클릭해 ${idx + 1}마디부터 재생 · 드래그로 구간 반복 지정">
           <span class="pr-bar-num"><span class="pr-bar-seek-icon">▶</span>${idx + 1}마디</span>
           <span class="pr-bar-meta">
-            <strong>${rc.symbol} (${tones})</strong>
+            <strong>${chordDisplay}</strong>
             ${coachChordBadge}
             <button class="pr-bar-loop-btn${inLoop ? ' active' : ''}" data-loop-bar="${idx}" type="button" title="${idx + 1}마디 구간 반복 토글 (Shift+클릭으로 구간 확장)">↻</button>
           </span>
@@ -921,6 +1138,28 @@ function renderL3Body(
       <button class="btn btn-chip${toolMode === 'select' ? ' active' : ''}" id="btn-pr-tool-select" type="button">범위 선택</button>
     </div>
   `;
+
+  const jumpChunks: Array<{ startBar: number; label: string }> = [];
+  if (totalBars > 4) {
+    for (let start = 0; start < totalBars; start += 4) {
+      const end = Math.min(totalBars, start + 4);
+      jumpChunks.push({ startBar: start, label: `${start + 1}~${end}` });
+    }
+  }
+  const jumpButtons =
+    jumpChunks.length > 0
+      ? `
+        <div class="pr-jump-group" role="group" aria-label="4마디 빠른 점프">
+          <span>이동</span>
+          ${jumpChunks
+            .map(
+              (chunk) =>
+                `<button class="btn btn-chip" data-jump-bar="${chunk.startBar}" type="button" title="${chunk.label}마디로 스크롤 이동">${chunk.label}</button>`
+            )
+            .join('')}
+        </div>
+      `
+      : '';
 
   const zoomButtons = `
     <div class="pr-zoom-group" role="group" aria-label="피아노롤 확대 배율">
@@ -1066,6 +1305,7 @@ function renderL3Body(
         <div class="controls-row pr-controls-row">
           ${toolButtons}
           ${durationButtons}
+          ${jumpButtons}
           ${zoomButtons}
           ${loopBadgeHtml}
           ${coachBadgeHtml}
@@ -1159,6 +1399,17 @@ function wireL3Events(
       if (!nextZoom || nextZoom === metrics.zoomId) return;
       containerZoomMap.set(container, nextZoom);
       onRerenderView?.();
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-jump-bar]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const startBar = Number(btn.dataset.jumpBar);
+      if (!Number.isFinite(startBar)) return;
+      const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
+      if (scrollEl) {
+        scrollEl.scrollLeft = Math.max(0, startBar * 16 * stepW);
+      }
     });
   });
 

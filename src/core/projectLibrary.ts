@@ -1,4 +1,6 @@
 import {
+  type BarCount,
+  type ChordSlot,
   type EditorLayer,
   type MelodyInstrument,
   type NoteEvent,
@@ -10,7 +12,7 @@ import {
   cloneProject,
   createDefaultProject,
 } from './model';
-import type { DegreeSymbol, ScaleMode } from './theory';
+import type { ChordExtension, ChordInversion, DegreeSymbol, ScaleMode } from './theory';
 
 export interface SavedSongSlot {
   id: string;
@@ -86,6 +88,8 @@ const VALID_PROGRESSION_IDS = new Set(PRESETS.progressions.map((p) => p.id));
 const VALID_GROOVE_IDS = new Set(PRESETS.grooves.map((g) => g.id));
 const VALID_CONTOUR_IDS = new Set(PRESETS.contours.map((c) => c.id));
 const VALID_DEGREES = new Set<DegreeSymbol>(PRESETS.availableDegrees);
+const VALID_EXTENSIONS = new Set<ChordExtension>(['triad', '7', 'sus4', 'add9']);
+const VALID_INVERSIONS = new Set<ChordInversion>([0, 1, 2]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -209,8 +213,9 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
       : defaults.mode;
   if (input.mode !== mode) warnings.push('mode 값을 기본값으로 보정했다.');
 
-  const bars: 4 | 8 = input.bars === 4 || input.bars === 8 ? input.bars : defaults.bars;
-  if (input.bars !== bars) warnings.push('마디 수를 4 또는 8로 보정했다.');
+  const bars: BarCount =
+    input.bars === 4 || input.bars === 8 || input.bars === 16 ? input.bars : defaults.bars;
+  if (input.bars !== bars) warnings.push('마디 수를 4, 8, 16 중 하나로 보정했다.');
 
   let bpm = defaults.bpm;
   if (typeof input.bpm === 'number' && Number.isFinite(input.bpm)) {
@@ -271,11 +276,30 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
   if (!Array.isArray(input.chain.chords) || rawChords.length !== bars) {
     warnings.push('마디 코드 슬롯 길이를 곡 마디 수에 맞춰 보정했다.');
   }
-  const chords = fallbackChords.map((fallbackSlot, barIdx) => {
+  const chords: ChordSlot[] = fallbackChords.map((fallbackSlot, barIdx) => {
     const byBar = rawChords.find((c) => isPlainObject(c) && c.bar === barIdx);
     const candidate = isPlainObject(byBar) ? byBar : rawChords[barIdx];
     if (isPlainObject(candidate) && typeof candidate.degree === 'string' && VALID_DEGREES.has(candidate.degree as DegreeSymbol)) {
-      return { bar: barIdx, degree: candidate.degree as DegreeSymbol };
+      const slot: ChordSlot = {
+        bar: barIdx,
+        degree: candidate.degree as DegreeSymbol,
+      };
+      if (typeof candidate.extension === 'string' && VALID_EXTENSIONS.has(candidate.extension as ChordExtension) && candidate.extension !== 'triad') {
+        slot.extension = candidate.extension as ChordExtension;
+      }
+      if (typeof candidate.inversion === 'number' && VALID_INVERSIONS.has(candidate.inversion as ChordInversion) && candidate.inversion !== 0) {
+        slot.inversion = candidate.inversion as ChordInversion;
+      }
+      if (typeof candidate.halfDegree === 'string' && VALID_DEGREES.has(candidate.halfDegree as DegreeSymbol)) {
+        slot.halfDegree = candidate.halfDegree as DegreeSymbol;
+        if (typeof candidate.halfExtension === 'string' && VALID_EXTENSIONS.has(candidate.halfExtension as ChordExtension) && candidate.halfExtension !== 'triad') {
+          slot.halfExtension = candidate.halfExtension as ChordExtension;
+        }
+        if (typeof candidate.halfInversion === 'number' && VALID_INVERSIONS.has(candidate.halfInversion as ChordInversion) && candidate.halfInversion !== 0) {
+          slot.halfInversion = candidate.halfInversion as ChordInversion;
+        }
+      }
+      return slot;
     }
     if (candidate !== undefined) {
       warnings.push(`${barIdx + 1}마디 코드 도수가 유효하지 않아 기본 도수로 보정했다.`);

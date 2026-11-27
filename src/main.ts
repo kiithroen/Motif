@@ -34,11 +34,13 @@ import {
   bakeProjectMelody,
   compileSong,
   previewModifierDiff,
+  resizeProjectBars,
   unpackBlocksToChain,
 } from './core/compiler';
 import { ProjectHistory } from './core/history';
 import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
 import {
+  type BarCount,
   type ChordInstrument,
   type MelodyInstrument,
   type ModifierId,
@@ -655,6 +657,7 @@ function init(): void {
             <select id="sel-bars">
               <option value="4"${project.bars === 4 ? ' selected' : ''}>4마디</option>
               <option value="8"${project.bars === 8 ? ' selected' : ''}>8마디</option>
+              <option value="16"${project.bars === 16 ? ' selected' : ''}>16마디 (A/B)</option>
             </select>
           </div>
           <div class="ctrl-group">
@@ -718,9 +721,11 @@ function init(): void {
     });
 
     topbarEl.querySelector('#sel-bars')?.addEventListener('change', (e) => {
-      const next = cloneProject(project);
-      next.bars = Number((e.target as HTMLSelectElement).value) as 4 | 8;
-      next.baked = false;
+      const nextBars = Number((e.target as HTMLSelectElement).value) as BarCount;
+      const next = resizeProjectBars(project, nextBars);
+      if (loopRange) {
+        loopRange = normalizeLoopRange(loopRange, next.bars);
+      }
       updateState(next);
     });
 

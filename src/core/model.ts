@@ -1,5 +1,7 @@
 import presetsRaw from '../data/presets.json';
-import type { DegreeSymbol, ScaleMode } from './theory';
+import type { ChordExtension, ChordInversion, DegreeSymbol, ScaleMode } from './theory';
+
+export type BarCount = 4 | 8 | 16;
 
 export type EditorLayer = 'L1' | 'L2' | 'L3';
 
@@ -28,6 +30,11 @@ export interface ModifierState {
 export interface ChordSlot {
   bar: number;
   degree: DegreeSymbol;
+  extension?: ChordExtension;
+  inversion?: ChordInversion;
+  halfDegree?: DegreeSymbol;
+  halfExtension?: ChordExtension;
+  halfInversion?: ChordInversion;
 }
 
 export interface L1Blocks {
@@ -65,7 +72,7 @@ export interface DrumEvent {
 export interface SongProject {
   keyRoot: number;
   mode: ScaleMode;
-  bars: 4 | 8;
+  bars: BarCount;
   bpm: number;
   seed: number;
   melodyInstrument: MelodyInstrument;
@@ -183,7 +190,7 @@ export interface PresetsData {
   defaults: {
     keyRoot: number;
     mode: ScaleMode;
-    bars: 4 | 8;
+    bars: BarCount;
     bpm: number;
     seed: number;
     melodyInstrument: MelodyInstrument;
@@ -214,7 +221,7 @@ export interface PresetsData {
 
 export const PRESETS = presetsRaw as PresetsData;
 
-export function buildChordsFromProgression(progressionId: string, bars: 4 | 8): ChordSlot[] {
+export function buildChordsFromProgression(progressionId: string, bars: BarCount): ChordSlot[] {
   const prog = PRESETS.progressions.find((p) => p.id === progressionId) ?? PRESETS.progressions[0];
   const slots: ChordSlot[] = [];
   for (let bar = 0; bar < bars; bar++) {

@@ -68,4 +68,31 @@ describe('music theory helpers', () => {
       expect(soundedPcs).toEqual(new Set(dimChord.pitchClasses));
     }
   });
+
+  it('resolves seventh, sus4, add9 extensions and slash inversions accurately', () => {
+    const cMaj7 = resolveChord('I', 0, 'major', '7');
+    expect(cMaj7.symbol).toBe('Cmaj7');
+    expect(cMaj7.pitchClasses).toEqual([0, 4, 7, 11]);
+
+    const dm7 = resolveChord('ii', 0, 'major', '7');
+    expect(dm7.symbol).toBe('Dm7');
+    expect(dm7.pitchClasses).toEqual([2, 5, 9, 0]);
+
+    const gSus4 = resolveChord('V', 0, 'major', 'sus4');
+    expect(gSus4.symbol).toBe('Gsus4');
+    expect(gSus4.pitchClasses).toEqual([7, 0, 2]);
+
+    const cAdd9 = resolveChord('I', 0, 'major', 'add9');
+    expect(cAdd9.symbol).toBe('Cadd9');
+    expect(cAdd9.pitchClasses).toEqual([0, 4, 7, 2]);
+
+    const cOverE = resolveChord('I', 0, 'major', 'triad', 1);
+    expect(cOverE.symbol).toBe('C/E');
+    expect(wrapPc(cOverE.bassMidi)).toBe(4);
+    expect(cOverE.voicingMidi[0]).toBeGreaterThan(48);
+
+    const diagSlash = getGuitarDiagram(cOverE);
+    expect(diagSlash.symbol).toBe('C/E');
+    expect(diagSlash.frets).toHaveLength(6);
+  });
 });

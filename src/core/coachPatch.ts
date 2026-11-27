@@ -2,6 +2,7 @@ import coachRaw from '../data/coach.json';
 import type { DiagnosisReport } from './analyzer';
 import { type CompiledSong, compileSong } from './compiler';
 import {
+  type BarCount,
   PRESETS,
   type ModifierId,
   type SongProject,
@@ -39,7 +40,7 @@ export interface CoachConfigData {
   };
   limits: {
     maxPromptLength: number;
-    maxDemoChordsByBars: Record<'4' | '8', number>;
+    maxDemoChordsByBars: Record<'4' | '8' | '16', number>;
     maxDemoModifiers: number;
     maxDemoMelodyBars: number;
     maxDemoMelodyNotesPerBar: number;
@@ -53,8 +54,8 @@ export interface CoachConfigData {
 
 export const COACH_CONFIG = coachRaw as CoachConfigData;
 
-export function getMaxDemoChords(bars: 4 | 8): number {
-  return COACH_CONFIG.limits.maxDemoChordsByBars[String(bars) as '4' | '8'] ?? 2;
+export function getMaxDemoChords(bars: BarCount): number {
+  return COACH_CONFIG.limits.maxDemoChordsByBars[String(bars) as '4' | '8' | '16'] ?? 2;
 }
 
 export interface CoachChordPatch {
@@ -135,7 +136,7 @@ export interface CoachContextPayload {
     keyName: string;
     koreanKeyName: string;
     mode: ScaleMode;
-    bars: 4 | 8;
+    bars: BarCount;
     bpm: number;
     baked: boolean;
     activeLayer: SongProject['activeLayer'];
@@ -299,7 +300,7 @@ export function buildCoachContext(
   };
 }
 
-export function buildCoachResponseSchema(bars: 4 | 8 = 4): Record<string, unknown> {
+export function buildCoachResponseSchema(bars: BarCount = 4): Record<string, unknown> {
   const modifierIds = PRESETS.modifiers.map((m) => m.id);
   const degrees = [...PRESETS.availableDegrees];
   const limits = COACH_CONFIG.limits;
@@ -428,7 +429,7 @@ export function buildCoachResponseSchema(bars: 4 | 8 = 4): Record<string, unknow
   };
 }
 
-export function buildCoachSystemPrompt(bars: 4 | 8 = 4): string {
+export function buildCoachSystemPrompt(bars: BarCount = 4): string {
   const maxChords = getMaxDemoChords(bars);
   const { maxDemoModifiers, maxDemoMelodyBars } = COACH_CONFIG.limits;
   return [
@@ -541,7 +542,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 export function sanitizeCoachPatch(
   raw: unknown,
-  currentBars: 4 | 8
+  currentBars: BarCount
 ): { patch: CoachPatch | undefined; warnings: string[] } {
   const warnings: string[] = [];
   if (raw === undefined || raw === null) {
@@ -751,7 +752,7 @@ export function sanitizeCoachPatch(
 
 export function parseCoachResponse(
   rawText: string,
-  currentBars: 4 | 8
+  currentBars: BarCount
 ): { response: CoachResponse; warnings: string[] } {
   const jsonText = extractJsonText(rawText);
   let parsed: unknown;

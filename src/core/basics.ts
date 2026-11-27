@@ -205,6 +205,7 @@ export function compileCompareDemo(
     bars: targetBars,
     totalSteps,
     resolvedChords: compiled.resolvedChords.slice(0, targetBars),
+    resolvedHalfChords: compiled.resolvedHalfChords.slice(0, targetBars),
     chords: compiled.chords.filter((c) => c.step < totalSteps),
     bass: compiled.bass.filter((b) => b.step < totalSteps),
     drums: compiled.drums.filter((d) => d.step < totalSteps),

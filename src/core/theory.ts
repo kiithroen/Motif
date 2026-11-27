@@ -6,12 +6,19 @@ export type DegreeSymbol = 'I' | 'ii' | 'iii' | 'IV' | 'iv' | 'V' | 'V7' | 'vi' 
 
 export type ChordQuality = 'major' | 'minor' | 'dom7' | 'dim';
 
+export type ChordExtension = 'triad' | '7' | 'sus4' | 'add9';
+
+export type ChordInversion = 0 | 1 | 2;
+
 export type HarmonicRole = 'chord_tone' | 'scale_tension' | 'passing' | 'clash';
 
 export interface ResolvedChord {
   degree: DegreeSymbol;
   rootPc: number;
   quality: ChordQuality;
+  extension: ChordExtension;
+  inversion: ChordInversion;
+  baseSymbol: string;
   symbol: string;
   koreanRoot: string;
   pitchClasses: number[];
@@ -119,26 +126,76 @@ export function snapToScale(midi: number, keyRoot: number, mode: ScaleMode, minM
   return best;
 }
 
-export function resolveChord(degree: DegreeSymbol, keyRoot: number, mode: ScaleMode): ResolvedChord {
+function buildExtensionSpec(
+  quality: ChordQuality,
+  extension: ChordExtension
+): { intervals: number[]; suffix: string } {
+  if (extension === '7') {
+    if (quality === 'major') return { intervals: [0, 4, 7, 11], suffix: 'maj7' };
+    if (quality === 'minor') return { intervals: [0, 3, 7, 10], suffix: 'm7' };
+    if (quality === 'dom7') return { intervals: [0, 4, 7, 10], suffix: '7' };
+    return { intervals: [0, 3, 6, 10], suffix: 'm7b5' };
+  }
+  if (extension === 'sus4') {
+    if (quality === 'dom7') return { intervals: [0, 5, 7, 10], suffix: '7sus4' };
+    return { intervals: [0, 5, 7], suffix: 'sus4' };
+  }
+  if (extension === 'add9') {
+    if (quality === 'major') return { intervals: [0, 4, 7, 14], suffix: 'add9' };
+    if (quality === 'minor') return { intervals: [0, 3, 7, 14], suffix: 'm(add9)' };
+    if (quality === 'dom7') return { intervals: [0, 4, 7, 10, 14], suffix: '9' };
+    return { intervals: [0, 3, 6, 14], suffix: 'dim(add9)' };
+  }
+  return {
+    intervals: QUALITY_INTERVALS[quality],
+    suffix: QUALITY_SUFFIX[quality],
+  };
+}
+
+export function resolveChord(
+  degree: DegreeSymbol,
+  keyRoot: number,
+  mode: ScaleMode,
+  extension: ChordExtension = 'triad',
+  inversion: ChordInversion = 0
+): ResolvedChord {
   const spec = DEGREE_SPECS[degree];
   const offset = mode === 'major' ? spec.offsetMajor : spec.offsetMinor;
   const quality = mode === 'major' ? spec.qualityMajor : spec.qualityMinor;
   const rootPc = wrapPc(keyRoot + offset);
-  const symbol = `${NOTE_NAMES_SHARP[rootPc]}${QUALITY_SUFFIX[quality]}`;
+  const { intervals, suffix } = buildExtensionSpec(quality, extension);
+  const baseSymbol = `${NOTE_NAMES_SHARP[rootPc]}${suffix}`;
   const koreanRoot = KOREAN_SOLFEGE[rootPc];
-  const intervals = QUALITY_INTERVALS[quality];
   const pitchClasses = intervals.map((iv) => wrapPc(rootPc + iv));
 
   // 화음이 C3~G4 부근에 겹쳐 깔끔히 울리도록 클로즈드 보이싱을 구성한다.
   const baseRoot = 48 + rootPc;
   const voicingBase = baseRoot > 57 ? baseRoot - 12 : baseRoot;
-  const voicingMidi = intervals.map((iv) => voicingBase + iv);
-  const bassMidi = 36 + rootPc > 46 ? 24 + rootPc : 36 + rootPc;
+  const rawVoicing = intervals.map((iv) => voicingBase + iv);
+  const clampedInversion: ChordInversion =
+    inversion === 2 && rawVoicing.length >= 3
+      ? 2
+      : inversion === 1 && rawVoicing.length >= 2
+        ? 1
+        : 0;
+
+  const voicingMidi = rawVoicing.map((midi, idx) =>
+    idx < clampedInversion ? midi + 12 : midi
+  );
+  voicingMidi.sort((a, b) => a - b);
+
+  const bassPc = pitchClasses[clampedInversion] ?? rootPc;
+  const symbol =
+    clampedInversion > 0 ? `${baseSymbol}/${NOTE_NAMES_SHARP[bassPc]}` : baseSymbol;
+  const bassMidi = 36 + bassPc > 46 ? 24 + bassPc : 36 + bassPc;
 
   return {
     degree,
     rootPc,
     quality,
+    extension,
+    inversion: clampedInversion,
+    baseSymbol,
     symbol,
     koreanRoot,
     pitchClasses,
@@ -156,15 +213,16 @@ const SHARP_TO_FLAT_ROOT: Record<string, string> = {
 };
 
 export function getGuitarDiagram(chord: ResolvedChord): GuitarChordDiagram {
-  const exact = GUITAR_CHORDS[chord.symbol];
+  const exact = GUITAR_CHORDS[chord.symbol] ?? GUITAR_CHORDS[chord.baseSymbol];
   if (exact) {
     return { symbol: chord.symbol, frets: [...exact.frets], baseFret: exact.baseFret };
   }
 
   const sharpRoot = NOTE_NAMES_SHARP[chord.rootPc];
   const flatRoot = SHARP_TO_FLAT_ROOT[sharpRoot];
+  const baseSuffix = chord.baseSymbol.slice(sharpRoot.length);
   if (flatRoot) {
-    const flatSymbol = `${flatRoot}${QUALITY_SUFFIX[chord.quality]}`;
+    const flatSymbol = `${flatRoot}${baseSuffix}`;
     const flatMatch = GUITAR_CHORDS[flatSymbol];
     if (flatMatch) {
       return { symbol: chord.symbol, frets: [...flatMatch.frets], baseFret: flatMatch.baseFret };

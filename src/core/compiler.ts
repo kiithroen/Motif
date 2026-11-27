@@ -1,5 +1,6 @@
 import {
   PRESETS,
+  type BarCount,
   type ChordInstrument,
   type ChordSlot,
   type DrumEvent,
@@ -30,10 +31,23 @@ export interface CompiledSong {
   bars: number;
   totalSteps: number;
   resolvedChords: ResolvedChord[];
+  resolvedHalfChords: (ResolvedChord | null)[];
   chords: NoteEvent[];
   bass: NoteEvent[];
   drums: DrumEvent[];
   melody: AnnotatedMelodyNote[];
+}
+
+export function resolveChordAtStep(
+  compiled: Pick<CompiledSong, 'resolvedChords' | 'resolvedHalfChords'>,
+  step: number
+): ResolvedChord {
+  const maxBar = Math.max(0, compiled.resolvedChords.length - 1);
+  const bar = Math.max(0, Math.min(maxBar, Math.floor(step / 16)));
+  const localStep = ((step % 16) + 16) % 16;
+  const half = compiled.resolvedHalfChords?.[bar];
+  if (localStep >= 8 && half) return half;
+  return compiled.resolvedChords[bar];
 }
 
 export interface ModifierDiff {
@@ -99,7 +113,14 @@ function buildModifierPreviewKey(
     project.blocks.contourId,
     project.blocks.energy,
     project.blocks.density,
-    project.chain.chords.slice(0, project.bars).map((c) => c.degree),
+    project.chain.chords.slice(0, project.bars).map((c) => [
+      c.degree,
+      c.extension ?? 'triad',
+      c.inversion ?? 0,
+      c.halfDegree ?? null,
+      c.halfExtension ?? 'triad',
+      c.halfInversion ?? 0,
+    ]),
     project.chain.modifiers.map((m) => [m.id, m.enabled, m.amount]),
   ]);
 }
@@ -115,7 +136,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-export function unpackBlocksToChain(blocks: L1Blocks, bars: 4 | 8, existingModifiers?: L2Chain['modifiers']): L2Chain {
+export function unpackBlocksToChain(blocks: L1Blocks, bars: BarCount, existingModifiers?: L2Chain['modifiers']): L2Chain {
   return {
     chords: buildChordsFromProgression(blocks.progressionId, bars),
     modifiers: existingModifiers ? existingModifiers.map((m) => ({ ...m })) : buildDefaultModifiers(),
@@ -123,10 +144,11 @@ export function unpackBlocksToChain(blocks: L1Blocks, bars: 4 | 8, existingModif
 }
 
 function effectiveChordSlots(project: SongProject): ChordSlot[] {
-  const slots = project.chain.chords.slice(0, project.bars).map((c) => ({ ...c }));
-  while (slots.length < project.bars) {
-    slots.push({ bar: slots.length, degree: 'I' });
-  }
+  const fallback = buildChordsFromProgression(project.blocks.progressionId, project.bars);
+  const slots = fallback.map((fb, idx) => {
+    const existing = project.chain.chords[idx];
+    return existing ? { ...existing, bar: idx } : fb;
+  });
 
   const borrowMod = project.chain.modifiers.find((m) => m.id === 'modal_borrow');
   if (borrowMod?.enabled && borrowMod.amount >= 0.25) {
@@ -156,7 +178,30 @@ function sampleContour(points: number[], tNorm: number): number {
   return points[lo] * (1 - frac) + points[hi] * frac;
 }
 
-function generateBaseMelody(project: SongProject, resolvedChords: ResolvedChord[]): NoteEvent[] {
+function resolveBarChords(
+  slots: ChordSlot[],
+  keyRoot: number,
+  mode: SongProject['mode']
+): {
+  resolvedChords: ResolvedChord[];
+  resolvedHalfChords: (ResolvedChord | null)[];
+} {
+  const resolvedChords = slots.map((s) =>
+    resolveChord(s.degree, keyRoot, mode, s.extension ?? 'triad', s.inversion ?? 0)
+  );
+  const resolvedHalfChords = slots.map((s) =>
+    s.halfDegree
+      ? resolveChord(s.halfDegree, keyRoot, mode, s.halfExtension ?? 'triad', s.halfInversion ?? 0)
+      : null
+  );
+  return { resolvedChords, resolvedHalfChords };
+}
+
+function generateBaseMelody(
+  project: SongProject,
+  resolvedChords: ResolvedChord[],
+  resolvedHalfChords: (ResolvedChord | null)[]
+): NoteEvent[] {
   const rng = mulberry32(project.seed * 997 + project.keyRoot * 31 + (project.mode === 'minor' ? 7 : 3));
   const contour = PRESETS.contours.find((c) => c.id === project.blocks.contourId) ?? PRESETS.contours[0];
   const scaleNotes = getScaleMidiNotes(project.keyRoot, project.mode, 60, 81);
@@ -169,7 +214,8 @@ function generateBaseMelody(project: SongProject, resolvedChords: ResolvedChord[
   let seq = 0;
 
   for (let bar = 0; bar < project.bars; bar++) {
-    const chord = resolvedChords[bar];
+    const firstChord = resolvedChords[bar];
+    const halfChord = resolvedHalfChords[bar];
     const barOffset = bar * 16;
     const candidateSteps =
       density >= 0.72
@@ -203,7 +249,8 @@ function generateBaseMelody(project: SongProject, resolvedChords: ResolvedChord[
       pitch = scaleNotes[Math.min(scaleNotes.length - 1, Math.max(0, idx + jitter))] ?? pitch;
 
       if (localStep === 0 || localStep === 8 || rng() < 0.55) {
-        pitch = nearestChordTone(pitch, chord, 60, 81);
+        const activeChord = localStep >= 8 && halfChord ? halfChord : firstChord;
+        pitch = nearestChordTone(pitch, activeChord, 60, 81);
       }
 
       notes.push({
@@ -236,18 +283,24 @@ function sortAndTrimOverlaps(notes: NoteEvent[], totalSteps: number): NoteEvent[
 function applyModifierPipeline(
   baseNotes: NoteEvent[],
   project: SongProject,
-  resolvedChords: ResolvedChord[]
+  resolvedChords: ResolvedChord[],
+  resolvedHalfChords: (ResolvedChord | null)[]
 ): NoteEvent[] {
   const totalSteps = project.bars * 16;
   let notes = baseNotes.map((n) => ({ ...n }));
   const modMap = new Map(project.chain.modifiers.map((m) => [m.id, m]));
 
-  // 1. motif_repeat: 1마디 리듬/음정 윤곽을 2~3마디(및 5~7마디)로 동기 반복 변주한다.
+  // 1. motif_repeat: 1마디 리듬/음정 윤곽을 2~3마디(8/16마디는 5~7, 9~15마디)로 동기 반복 변주한다.
   const motif = modMap.get('motif_repeat');
   if (motif?.enabled && motif.amount > 0.1 && project.bars >= 2) {
     const bar0 = notes.filter((n) => n.step < 16);
     if (bar0.length >= 2) {
-      const targetBars = project.bars === 8 ? [1, 2, 4, 5, 6] : [1, 2];
+      const targetBars =
+        project.bars === 16
+          ? [1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]
+          : project.bars === 8
+            ? [1, 2, 4, 5, 6]
+            : [1, 2];
       const thresholdBars = Math.max(1, Math.round(targetBars.length * motif.amount));
       const applyTo = new Set(targetBars.slice(0, thresholdBars));
       const kept = notes.filter((n) => !applyTo.has(Math.floor(n.step / 16)));
@@ -255,14 +308,16 @@ function applyModifierPipeline(
       let mSeq = 0;
 
       for (const b of applyTo) {
-        const chord = resolvedChords[b];
+        const firstChord = resolvedChords[b];
+        const halfChord = resolvedHalfChords[b];
         const barBaseStep = b * 16;
-        const barRootTarget = nearestChordTone(anchor + (b % 2 === 1 ? 2 : -1), chord, 60, 81);
+        const barRootTarget = nearestChordTone(anchor + (b % 2 === 1 ? 2 : -1), firstChord, 60, 81);
         for (const src of bar0) {
           const offsetFromAnchor = src.midi - anchor;
           const desired = snapToScale(barRootTarget + offsetFromAnchor, project.keyRoot, project.mode, 60, 83);
           const localStep = src.step;
-          const midi = localStep % 8 === 0 ? nearestChordTone(desired, chord, 60, 83) : desired;
+          const activeChord = localStep >= 8 && halfChord ? halfChord : firstChord;
+          const midi = localStep % 8 === 0 ? nearestChordTone(desired, activeChord, 60, 83) : desired;
           kept.push({
             id: `m_motif_${b}_${mSeq++}`,
             midi,
@@ -376,6 +431,7 @@ function applyModifierPipeline(
 function compileAccompaniment(
   project: SongProject,
   resolvedChords: ResolvedChord[],
+  resolvedHalfChords: (ResolvedChord | null)[],
   chordInstrument: ChordInstrument = 'piano'
 ): {
   chords: NoteEvent[];
@@ -390,10 +446,14 @@ function compileAccompaniment(
   const drums: DrumEvent[] = [];
 
   for (let bar = 0; bar < project.bars; bar++) {
-    const rc = resolvedChords[bar];
+    const firstRc = resolvedChords[bar];
+    const halfRc = resolvedHalfChords[bar];
     const barStep = bar * 16;
 
     for (const st of pattern) {
+      const rc = st.step >= 8 && halfRc ? halfRc : firstRc;
+      const maxDur = halfRc && st.step < 8 ? Math.max(1, 8 - st.step) : 16 - st.step;
+      const dur = Math.min(st.duration, maxDur);
       if (st.direction === 'arp0' || st.direction === 'arp1' || st.direction === 'arp2') {
         const idx = st.direction === 'arp0' ? 0 : st.direction === 'arp1' ? 1 : 2;
         const pitch = rc.voicingMidi[idx % rc.voicingMidi.length];
@@ -401,7 +461,7 @@ function compileAccompaniment(
           id: `c_${bar}_${st.step}_${idx}`,
           midi: pitch,
           step: barStep + st.step,
-          duration: st.duration,
+          duration: dur,
           velocity: st.velocity * (0.8 + project.blocks.energy * 0.25),
         });
       } else {
@@ -411,7 +471,7 @@ function compileAccompaniment(
             id: `c_${bar}_${st.step}_${i}`,
             midi: order[i],
             step: barStep + st.step,
-            duration: st.duration,
+            duration: dur,
             velocity: Math.min(0.95, st.velocity * (0.75 + project.blocks.energy * 0.3)),
           });
         }
@@ -419,6 +479,7 @@ function compileAccompaniment(
     }
 
     for (const bStep of groove.bassSteps) {
+      const rc = bStep >= 8 && halfRc ? halfRc : firstRc;
       bass.push({
         id: `b_${bar}_${bStep}`,
         midi: rc.bassMidi,
@@ -445,11 +506,12 @@ function compileAccompaniment(
 function annotateMelody(
   rawMelody: NoteEvent[],
   resolvedChords: ResolvedChord[],
+  resolvedHalfChords: (ResolvedChord | null)[],
   project: SongProject
 ): AnnotatedMelodyNote[] {
+  const chordLookup = { resolvedChords, resolvedHalfChords };
   return rawMelody.map((n) => {
-    const bar = Math.min(resolvedChords.length - 1, Math.floor(n.step / 16));
-    const rc = resolvedChords[bar];
+    const rc = resolveChordAtStep(chordLookup, n.step);
     return {
       ...n,
       role: classifyPitch(n.midi, rc, project.keyRoot, project.mode, n.step % 16, n.duration),
@@ -463,27 +525,126 @@ export function compileSong(
 ): CompiledSong {
   const totalSteps = project.bars * 16;
   const slots = effectiveChordSlots(project);
-  const resolvedChords = slots.map((s) => resolveChord(s.degree, project.keyRoot, project.mode));
-  const { chords, bass, drums } = compileAccompaniment(project, resolvedChords, chordInstrument);
+  const { resolvedChords, resolvedHalfChords } = resolveBarChords(
+    slots,
+    project.keyRoot,
+    project.mode
+  );
+  const { chords, bass, drums } = compileAccompaniment(
+    project,
+    resolvedChords,
+    resolvedHalfChords,
+    chordInstrument
+  );
 
   const rawMelody = project.baked
     ? sortAndTrimOverlaps(
         project.bakedMelody.map((n) => ({ ...n })),
         totalSteps
       )
-    : applyModifierPipeline(generateBaseMelody(project, resolvedChords), project, resolvedChords);
+    : applyModifierPipeline(
+        generateBaseMelody(project, resolvedChords, resolvedHalfChords),
+        project,
+        resolvedChords,
+        resolvedHalfChords
+      );
 
-  const melody = annotateMelody(rawMelody, resolvedChords, project);
+  const melody = annotateMelody(rawMelody, resolvedChords, resolvedHalfChords, project);
 
   return {
     bars: project.bars,
     totalSteps,
     resolvedChords,
+    resolvedHalfChords,
     chords,
     bass,
     drums,
     melody,
   };
+}
+
+export function resizeProjectBars(project: SongProject, nextBars: BarCount): SongProject {
+  const next = cloneProject(project);
+  if (next.bars === nextBars) return next;
+  const prevSlots = next.chain.chords;
+  const fallback = buildChordsFromProgression(next.blocks.progressionId, nextBars);
+  const resizedChords: ChordSlot[] = [];
+  for (let bar = 0; bar < nextBars; bar++) {
+    if (bar < prevSlots.length) {
+      resizedChords.push({ ...prevSlots[bar], bar });
+    } else if (prevSlots.length > 0) {
+      const src = prevSlots[bar % prevSlots.length];
+      resizedChords.push({ ...src, bar });
+    } else {
+      resizedChords.push(fallback[bar]);
+    }
+  }
+  next.bars = nextBars;
+  next.chain.chords = resizedChords;
+  if (next.baked) {
+    const maxStep = nextBars * 16;
+    next.bakedMelody = sortAndTrimOverlaps(
+      next.bakedMelody.filter((n) => n.step < maxStep),
+      maxStep
+    );
+  }
+  return next;
+}
+
+export function duplicateAToBWithVariation(project: SongProject): SongProject {
+  const next = project.bars === 16 ? cloneProject(project) : resizeProjectBars(project, 16);
+  const partA = next.chain.chords.slice(0, 8);
+  const partB = partA.map((slot, idx) => ({
+    ...slot,
+    bar: 8 + idx,
+  }));
+
+  // B 파트 후반부(12마디, 15~16마디)에 종지/클라이맥스 코드 변주를 넣는다.
+  if (partB.length >= 4) {
+    partB[3] = {
+      ...partB[3],
+      extension: partB[3].extension && partB[3].extension !== 'triad' ? partB[3].extension : '7',
+    };
+  }
+  if (partB.length >= 8) {
+    const lastA = partA[7]?.degree ?? 'V';
+    partB[6] = {
+      ...partB[6],
+      degree: partB[6].degree === 'I' ? 'IV' : partB[6].degree,
+      extension: 'sus4',
+    };
+    partB[7] = {
+      ...partB[7],
+      degree: lastA === 'V' || lastA === 'V7' ? 'V7' : 'V',
+      halfDegree: lastA === 'V' || lastA === 'V7' ? undefined : 'V7',
+    };
+  }
+
+  next.chain.chords = [...partA, ...partB];
+
+  if (next.baked && next.bakedMelody.length > 0) {
+    const partAMelody = next.bakedMelody.filter((n) => n.step >= 0 && n.step < 128);
+    const partBMelody = partAMelody.map((n, idx) => {
+      const shiftedStep = n.step + 128;
+      // 13~16마디(step >= 192)는 한 옥타브 또는 스케일 내 상행 변주한다.
+      const boost = shiftedStep >= 192 && n.midi + 12 <= 84 ? 12 : 0;
+      return {
+        ...n,
+        id: `m_b_${idx}_${shiftedStep}`,
+        step: shiftedStep,
+        midi: n.midi + boost,
+        origin: 'user' as const,
+      };
+    });
+    next.bakedMelody = sortAndTrimOverlaps([...partAMelody, ...partBMelody], 256);
+  } else {
+    next.chain.modifiers = next.chain.modifiers.map((m) =>
+      m.id === 'octave_lift'
+        ? { ...m, enabled: true, amount: Math.max(0.65, m.amount) }
+        : m
+    );
+  }
+  return next;
 }
 
 export function bakeProjectMelody(project: SongProject): SongProject {
@@ -503,17 +664,25 @@ function createPreviewCacheEntry(
   unbakedProject.baked = false;
   const totalSteps = unbakedProject.bars * 16;
   const slots = effectiveChordSlots(unbakedProject);
-  const resolvedChords = slots.map((s) =>
-    resolveChord(s.degree, unbakedProject.keyRoot, unbakedProject.mode)
+  const { resolvedChords, resolvedHalfChords } = resolveBarChords(
+    slots,
+    unbakedProject.keyRoot,
+    unbakedProject.mode
   );
   const { chords, bass, drums } = compileAccompaniment(
     unbakedProject,
     resolvedChords,
+    resolvedHalfChords,
     chordInstrument
   );
-  const baseMelody = generateBaseMelody(unbakedProject, resolvedChords);
-  const rawMelody = applyModifierPipeline(baseMelody, unbakedProject, resolvedChords);
-  const melody = annotateMelody(rawMelody, resolvedChords, unbakedProject);
+  const baseMelody = generateBaseMelody(unbakedProject, resolvedChords, resolvedHalfChords);
+  const rawMelody = applyModifierPipeline(
+    baseMelody,
+    unbakedProject,
+    resolvedChords,
+    resolvedHalfChords
+  );
+  const melody = annotateMelody(rawMelody, resolvedChords, resolvedHalfChords, unbakedProject);
   previewCacheStats.fullCompiles += 1;
 
   return {
@@ -521,6 +690,7 @@ function createPreviewCacheEntry(
       bars: unbakedProject.bars,
       totalSteps,
       resolvedChords,
+      resolvedHalfChords,
       chords,
       bass,
       drums,
@@ -572,9 +742,15 @@ function compileAlternateModifierState(
   const rawMelody = applyModifierPipeline(
     entry.baseMelody,
     altProj,
-    entry.unbakedCompiled.resolvedChords
+    entry.unbakedCompiled.resolvedChords,
+    entry.unbakedCompiled.resolvedHalfChords
   );
-  const melody = annotateMelody(rawMelody, entry.unbakedCompiled.resolvedChords, altProj);
+  const melody = annotateMelody(
+    rawMelody,
+    entry.unbakedCompiled.resolvedChords,
+    entry.unbakedCompiled.resolvedHalfChords,
+    altProj
+  );
   return {
     ...entry.unbakedCompiled,
     melody,

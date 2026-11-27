@@ -26,7 +26,8 @@
     "maxPromptLength": 400,
     "maxDemoChordsByBars": {
       "4": 2,
-      "8": 4
+      "8": 4,
+      "16": 6
     },
     "maxDemoModifiers": 2,
     "maxDemoMelodyBars": 2,

@@ -3,8 +3,11 @@ import {
   bakeProjectMelody,
   clearPreviewCache,
   compileSong,
+  duplicateAToBWithVariation,
   getPreviewCacheStats,
   previewModifierDiff,
+  resizeProjectBars,
+  resolveChordAtStep,
   unpackBlocksToChain,
 } from '../src/core/compiler';
 import { PRESETS, createDefaultProject } from '../src/core/model';
@@ -144,5 +147,36 @@ describe('3-tier song compiler', () => {
     const nextSeed = { ...base, seed: base.seed + 1 };
     previewModifierDiff(nextSeed, PRESETS.modifiers[0].id, 'guitar');
     expect(getPreviewCacheStats().misses).toBe(afterFirstPass.misses + 1);
+  });
+
+  it('supports 16-bar expansion, A-to-B variation, and 2-chord split bars', () => {
+    const base = createDefaultProject();
+    const proj16 = resizeProjectBars(base, 16);
+    expect(proj16.bars).toBe(16);
+    expect(proj16.chain.chords).toHaveLength(16);
+
+    const varied = duplicateAToBWithVariation(proj16);
+    expect(varied.bars).toBe(16);
+    expect(varied.chain.chords[8].degree).toBe(varied.chain.chords[0].degree);
+    expect(varied.chain.chords[14].extension).toBe('sus4');
+
+    varied.chain.chords[0] = {
+      bar: 0,
+      degree: 'I',
+      extension: 'add9',
+      halfDegree: 'V',
+      halfInversion: 1,
+    };
+    const compiled = compileSong(varied, 'piano');
+    expect(compiled.totalSteps).toBe(256);
+    expect(compiled.resolvedChords[0].symbol).toBe('Cadd9');
+    expect(compiled.resolvedHalfChords[0]?.symbol).toBe('G/B');
+    expect(resolveChordAtStep(compiled, 0).symbol).toBe('Cadd9');
+    expect(resolveChordAtStep(compiled, 8).symbol).toBe('G/B');
+
+    const bar0BassFirst = compiled.bass.find((b) => b.step === 0);
+    const bar0BassSecond = compiled.bass.find((b) => b.step === 8);
+    expect(bar0BassFirst!.midi % 12).toBe(0); // C
+    expect(bar0BassSecond!.midi % 12).toBe(11); // B (G/B)
   });
 });

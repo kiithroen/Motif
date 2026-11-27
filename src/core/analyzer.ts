@@ -1,4 +1,4 @@
-import { type CompiledSong } from './compiler';
+import { type CompiledSong, resolveChordAtStep } from './compiler';
 import { PRESETS, type SongProject, cloneProject } from './model';
 import {
   getScalePitchClasses,
@@ -52,7 +52,7 @@ export function analyzeSong(compiled: CompiledSong, project: SongProject): Diagn
   if (clashNotes.length > 0) {
     const first = clashNotes[0];
     const bar = Math.floor(first.step / 16);
-    const chord = compiled.resolvedChords[bar];
+    const chord = resolveChordAtStep(compiled, first.step);
     const fixedPitch = nearestChordTone(first.midi, chord, 60, 84);
     const affectedIds = clashNotes.map((n) => n.id);
     issues.push({
@@ -69,8 +69,7 @@ export function analyzeSong(compiled: CompiledSong, project: SongProject): Diagn
         const set = new Set(affectedIds);
         next.bakedMelody = notes.map((n) => {
           if (!set.has(n.id)) return n;
-          const b = Math.min(compiled.resolvedChords.length - 1, Math.floor(n.step / 16));
-          return { ...n, midi: nearestChordTone(n.midi, compiled.resolvedChords[b], 60, 84), origin: 'user' };
+          return { ...n, midi: nearestChordTone(n.midi, resolveChordAtStep(compiled, n.step), 60, 84), origin: 'user' };
         });
         next.baked = true;
         return next;
@@ -163,8 +162,7 @@ export function analyzeSong(compiled: CompiledSong, project: SongProject): Diagn
             if (Math.abs(diff) >= th.largeLeapSemitones) {
               const step = diff > 0 ? notes[i].midi - 12 : notes[i].midi + 12;
               const clamped = Math.max(60, Math.min(84, step));
-              const b = Math.min(compiled.resolvedChords.length - 1, Math.floor(notes[i].step / 16));
-              notes[i].midi = nearestChordTone(clamped, compiled.resolvedChords[b], 60, 84);
+              notes[i].midi = nearestChordTone(clamped, resolveChordAtStep(compiled, notes[i].step), 60, 84);
               notes[i].origin = 'user';
             }
           }
