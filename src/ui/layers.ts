@@ -1,7 +1,16 @@
 import { type CompiledSong, previewModifierDiff } from '../core/compiler';
 import { PRESETS, type ModifierId, type NoteEvent, type SongProject, cloneProject } from '../core/model';
 import {
+  addPianoRollNote,
+  computeMaxResizeDuration,
+  deletePianoRollNote,
+  movePianoRollNote,
+  resizePianoRollNote,
+} from '../core/pianoRollOps';
+import {
+  type HarmonicRole,
   KOREAN_SOLFEGE,
+  classifyPitch,
   getScalePitchClasses,
   isWhiteKey,
   koreanNoteName,
@@ -378,6 +387,76 @@ function wireL2Events(container: HTMLElement, project: SongProject, callbacks: L
   });
 }
 
+function noteRoleColor(role: HarmonicRole): string {
+  if (role === 'chord_tone') return '#34d399';
+  if (role === 'clash') return '#fb7185';
+  return '#38bdf8';
+}
+
+function computeHandleWidth(noteWidth: number): number {
+  return Math.min(8, Math.max(6, Math.floor(noteWidth * 0.35)));
+}
+
+function applyNoteGroupGeometry(
+  group: SVGGElement,
+  step: number,
+  midi: number,
+  duration: number,
+  role: HarmonicRole
+): void {
+  const rowIdx = PR_MAX_MIDI - midi;
+  const x = step * STEP_W + 1;
+  const y = rowIdx * ROW_H + 2;
+  const w = Math.max(STEP_W - 2, duration * STEP_W - 2);
+  const h = ROW_H - 4;
+  const handleW = computeHandleWidth(w);
+  const fill = noteRoleColor(role);
+
+  const body = group.querySelector<SVGRectElement>('.pr-note-body');
+  if (body) {
+    body.setAttribute('x', String(x));
+    body.setAttribute('y', String(y));
+    body.setAttribute('width', String(w));
+    body.setAttribute('height', String(h));
+    body.setAttribute('fill', fill);
+  }
+
+  const label = group.querySelector<SVGTextElement>('.pr-note-label');
+  if (label) {
+    label.setAttribute('x', String(x + 5));
+    label.setAttribute('y', String(y + 12));
+    label.textContent = duration >= 2 ? koreanNoteName(midi) : '';
+  }
+
+  const handle = group.querySelector<SVGRectElement>('.pr-note-resize');
+  if (handle) {
+    handle.setAttribute('x', String(x + w - handleW));
+    handle.setAttribute('y', String(y));
+    handle.setAttribute('width', String(handleW));
+    handle.setAttribute('height', String(h));
+  }
+
+  const grip = group.querySelector<SVGLineElement>('.pr-note-grip');
+  if (grip) {
+    grip.setAttribute('x1', String(x + w - 3.5));
+    grip.setAttribute('y1', String(y + 4));
+    grip.setAttribute('x2', String(x + w - 3.5));
+    grip.setAttribute('y2', String(y + h - 4));
+  }
+}
+
+function computeLiveRole(
+  compiled: CompiledSong,
+  project: SongProject,
+  step: number,
+  midi: number,
+  duration: number
+): HarmonicRole {
+  const bar = Math.max(0, Math.min(compiled.resolvedChords.length - 1, Math.floor(step / 16)));
+  const rc = compiled.resolvedChords[bar];
+  return rc ? classifyPitch(midi, rc, project.keyRoot, project.mode, step % 16, duration) : 'passing';
+}
+
 function renderL3Body(
   project: SongProject,
   compiled: CompiledSong,
@@ -457,17 +536,15 @@ function renderL3Body(
     const y = rowIdx * ROW_H + 2;
     const w = Math.max(STEP_W - 2, n.duration * STEP_W - 2);
     const h = ROW_H - 4;
-    const fill =
-      n.role === 'chord_tone'
-        ? '#34d399'
-        : n.role === 'clash'
-          ? '#fb7185'
-          : '#38bdf8';
+    const handleW = computeHandleWidth(w);
+    const fill = noteRoleColor(n.role);
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
     noteRects += `
       <g class="pr-note" data-note-id="${n.id}">
-        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" stroke="#08111f" stroke-width="1"/>
-        <text x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" fill="#06121f">${label}</text>
+        <rect class="pr-note-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" stroke="#08111f" stroke-width="1"/>
+        <text class="pr-note-label" x="${x + 5}" y="${y + 12}" font-size="10" font-weight="700" fill="#06121f" pointer-events="none">${label}</text>
+        <rect class="pr-note-resize" data-note-id="${n.id}" x="${x + w - handleW}" y="${y}" width="${handleW}" height="${h}" rx="2"/>
+        <line class="pr-note-grip" x1="${x + w - 3.5}" y1="${y + 4}" x2="${x + w - 3.5}" y2="${y + h - 4}" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" stroke-linecap="round" pointer-events="none"/>
       </g>
     `;
   }
@@ -485,7 +562,7 @@ function renderL3Body(
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
         </div>
         ${durationButtons}
-        <span>빈 칸 클릭: 음 추가 · 음표 클릭: 삭제 · PC 건반(A~K)</span>
+        <span>빈 칸 클릭: 추가 · 음표 드래그: 이동 · 오른쪽 끝 드래그: 길이 · 클릭: 삭제 · PC 건반(A~K)</span>
       </div>
       <div class="pr-container">
         <div class="pr-keys-col">
@@ -535,42 +612,210 @@ function wireL3Events(
   const svg = container.querySelector<SVGSVGElement>('.pr-svg');
   if (!svg) return;
 
-  svg.addEventListener('click', (e) => {
-    const targetEl = e.target as Element;
-    const noteGroup = targetEl.closest('.pr-note');
-    const next = cloneProject(project);
-    const baseNotes: NoteEvent[] = next.baked
-      ? next.bakedMelody
-      : compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+  const DRAG_THRESHOLD_PX = 4;
 
-    if (noteGroup) {
-      const id = noteGroup.getAttribute('data-note-id');
-      next.bakedMelody = baseNotes.filter((n) => n.id !== id);
+  svg.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+
+    const targetEl = e.target as Element | null;
+    const resizeEl = targetEl?.closest('.pr-note-resize') ?? null;
+    const noteGroup = targetEl?.closest<SVGGElement>('.pr-note') ?? null;
+    const baseNotes: NoteEvent[] = compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+
+    // 경우 A: 빈 칸 클릭 -> 새 음표 추가
+    if (!noteGroup) {
+      const rect = svg.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / STEP_W)));
+      const row = Math.floor(y / ROW_H);
+      const midi = PR_MAX_MIDI - row;
+      if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+
+      callbacks.onAuditionPitch(midi);
+      const next = cloneProject(project);
+      next.bakedMelody = addPianoRollNote(baseNotes, {
+        id: `m_user_${Date.now()}_${step}`,
+        midi,
+        step,
+        duration: callbacks.selectedDuration,
+        totalSteps: compiled.totalSteps,
+        bounds: { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI },
+      });
       next.baked = true;
       callbacks.onProjectChange(next);
       return;
     }
 
-    const rect = svg.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const step = Math.max(0, Math.min(compiled.totalSteps - 1, Math.floor(x / STEP_W)));
-    const row = Math.floor(y / ROW_H);
-    const midi = PR_MAX_MIDI - row;
-    if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+    const noteId = noteGroup.getAttribute('data-note-id');
+    const targetNote = compiled.melody.find((n) => n.id === noteId);
+    if (!targetNote) return;
 
-    callbacks.onAuditionPitch(midi);
-    const duration = Math.max(1, Math.min(callbacks.selectedDuration, compiled.totalSteps - step));
-    const newNote: NoteEvent = {
-      id: `m_user_${Date.now()}_${step}`,
-      midi,
-      step,
-      duration,
-      velocity: 0.82,
-      origin: 'user',
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const playheadEl = svg.querySelector('.pr-playhead');
+    const raiseNoteOrder = () => {
+      if (playheadEl) svg.insertBefore(noteGroup, playheadEl);
+      else svg.appendChild(noteGroup);
     };
-    next.bakedMelody = [...baseNotes.filter((n) => n.step !== step), newNote];
-    next.baked = true;
-    callbacks.onProjectChange(next);
+
+    // 경우 B: 오른쪽 끝 핸들 드래그 -> 길이 조절
+    if (resizeEl) {
+      const maxDuration = computeMaxResizeDuration(baseNotes, targetNote.id, compiled.totalSteps);
+      let curDuration = targetNote.duration;
+
+      noteGroup.classList.add('resizing');
+      svg.classList.add('pr-resizing');
+      raiseNoteOrder();
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKeyDown);
+        noteGroup.classList.remove('resizing');
+        svg.classList.remove('pr-resizing');
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        const rawEndStep = Math.round((ev.clientX - rect.left) / STEP_W);
+        const nextDuration = Math.max(1, Math.min(maxDuration, rawEndStep - targetNote.step));
+        if (nextDuration !== curDuration) {
+          curDuration = nextDuration;
+          const liveRole = computeLiveRole(compiled, project, targetNote.step, targetNote.midi, curDuration);
+          applyNoteGroupGeometry(noteGroup, targetNote.step, targetNote.midi, curDuration, liveRole);
+        }
+      };
+
+      const onCancel = () => {
+        cleanup();
+        applyNoteGroupGeometry(
+          noteGroup,
+          targetNote.step,
+          targetNote.midi,
+          targetNote.duration,
+          targetNote.role
+        );
+      };
+
+      const onKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key === 'Escape') {
+          onCancel();
+        }
+      };
+
+      const onUp = () => {
+        cleanup();
+        if (curDuration !== targetNote.duration) {
+          const next = cloneProject(project);
+          next.bakedMelody = resizePianoRollNote(baseNotes, targetNote.id, curDuration, compiled.totalSteps);
+          next.baked = true;
+          callbacks.onProjectChange(next);
+        }
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKeyDown);
+      return;
+    }
+
+    // 경우 C: 음표 본체 드래그 -> 음높이/박자 이동, 단순 클릭 -> 삭제
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const pointerStartStep = Math.floor((e.clientX - rect.left) / STEP_W);
+    const grabStepOffset = Math.max(
+      0,
+      Math.min(Math.max(0, targetNote.duration - 1), pointerStartStep - targetNote.step)
+    );
+    let hasDragged = false;
+    let curStep = targetNote.step;
+    let curMidi = targetNote.midi;
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKeyDown);
+      noteGroup.classList.remove('dragging');
+      svg.classList.remove('pr-dragging');
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (!hasDragged) {
+        if (Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) < DRAG_THRESHOLD_PX) {
+          return;
+        }
+        hasDragged = true;
+        noteGroup.classList.add('dragging');
+        svg.classList.add('pr-dragging');
+        raiseNoteOrder();
+      }
+
+      const pointerStep = Math.floor((ev.clientX - rect.left) / STEP_W);
+      const pointerRow = Math.floor((ev.clientY - rect.top) / ROW_H);
+      const nextStep = Math.max(0, Math.min(compiled.totalSteps - 1, pointerStep - grabStepOffset));
+      const nextMidi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, PR_MAX_MIDI - pointerRow));
+
+      if (nextMidi !== curMidi) {
+        callbacks.onAuditionPitch(nextMidi);
+      }
+
+      if (nextStep !== curStep || nextMidi !== curMidi) {
+        curStep = nextStep;
+        curMidi = nextMidi;
+        const previewDur = Math.max(1, Math.min(targetNote.duration, compiled.totalSteps - curStep));
+        const liveRole = computeLiveRole(compiled, project, curStep, curMidi, previewDur);
+        applyNoteGroupGeometry(noteGroup, curStep, curMidi, previewDur, liveRole);
+      }
+    };
+
+    const onCancel = () => {
+      cleanup();
+      applyNoteGroupGeometry(
+        noteGroup,
+        targetNote.step,
+        targetNote.midi,
+        targetNote.duration,
+        targetNote.role
+      );
+    };
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        onCancel();
+      }
+    };
+
+    const onUp = () => {
+      cleanup();
+      if (!hasDragged) {
+        const next = cloneProject(project);
+        next.bakedMelody = deletePianoRollNote(baseNotes, targetNote.id);
+        next.baked = true;
+        callbacks.onProjectChange(next);
+        return;
+      }
+
+      if (curStep !== targetNote.step || curMidi !== targetNote.midi) {
+        const next = cloneProject(project);
+        next.bakedMelody = movePianoRollNote(
+          baseNotes,
+          targetNote.id,
+          curStep,
+          curMidi,
+          compiled.totalSteps,
+          { minMidi: PR_MIN_MIDI, maxMidi: PR_MAX_MIDI }
+        );
+        next.baked = true;
+        callbacks.onProjectChange(next);
+      }
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKeyDown);
   });
 }
