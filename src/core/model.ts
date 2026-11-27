@@ -154,6 +154,7 @@ export interface PresetsData {
     contourId: string;
     energy: number;
     density: number;
+    noteDurationSteps: number;
   };
   progressions: ProgressionPreset[];
   grooves: GroovePreset[];

@@ -33,7 +33,9 @@ export interface ProjectChangeOptions {
 export interface LayerCallbacks {
   selectedDuration: number;
   loopRange?: LoopBarRange | null;
+  preserveBakedOnChordChange?: boolean;
   onSelectDuration: (steps: number) => void;
+  onTogglePreserveBaked?: (preserve: boolean) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
@@ -145,6 +147,8 @@ export function renderLayerEditor(
   const layer = project.activeLayer;
   const prevScrollLeft =
     layer === 'L3' ? container.querySelector<HTMLElement>('.pr-grid-scroll')?.scrollLeft ?? 0 : 0;
+  const hasBakedMelody = project.baked && project.bakedMelody.length > 0;
+  const preserveBakedOnChordChange = callbacks.preserveBakedOnChordChange ?? true;
 
   const tabsHtml = `
     <div class="ladder-tabs">
@@ -158,7 +162,7 @@ export function renderLayerEditor(
           layer === 'L1'
             ? `<button class="btn btn-primary" id="btn-unpack" type="button">블록을 L2 변형 체인으로 펼치기 →</button>`
             : layer === 'L2'
-              ? `<button class="btn btn-primary" id="btn-bake" type="button">음표로 L3 피아노롤에 굽기 →</button>`
+              ? `<button class="btn btn-primary" id="btn-bake" type="button">${hasBakedMelody ? 'L3 피아노롤로 돌아가기 (편집 유지) →' : '음표로 L3 피아노롤에 굽기 →'}</button>`
               : `<button class="btn" id="btn-unbake" type="button">L2 체인 결과로 초기화</button>`
         }
       </div>
@@ -173,9 +177,9 @@ export function renderLayerEditor(
   }
 
   if (layer === 'L2') {
-    container.innerHTML = tabsHtml + renderL2Body(project, compiled);
+    container.innerHTML = tabsHtml + renderL2Body(project, compiled, preserveBakedOnChordChange);
     wireTabs(container, project, callbacks);
-    wireL2Events(container, project, callbacks);
+    wireL2Events(container, project, callbacks, preserveBakedOnChordChange);
     return;
   }
 
@@ -211,8 +215,9 @@ function wireTabs(container: HTMLElement, project: SongProject, callbacks: Layer
   container.querySelector('#btn-bake')?.addEventListener('click', () => {
     const next = cloneProject(project);
     next.activeLayer = 'L3';
-    // Main controller handles baking cleanly when missing bakedMelody
-    next.baked = false;
+    if (!(next.baked && next.bakedMelody.length > 0)) {
+      next.baked = false;
+    }
     callbacks.onProjectChange(next);
   });
 }
@@ -356,7 +361,31 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
   });
 }
 
-function renderL2Body(project: SongProject, compiled: CompiledSong): string {
+function renderL2Body(
+  project: SongProject,
+  compiled: CompiledSong,
+  preserveBakedOnChordChange: boolean
+): string {
+  const hasBakedMelody = project.baked && project.bakedMelody.length > 0;
+  const bakedGuardHtml = hasBakedMelody
+    ? `
+      <div class="l2-baked-guard">
+        <div class="l2-baked-guard-main">
+          <label class="l2-baked-guard-toggle">
+            <input type="checkbox" id="chk-preserve-baked"${preserveBakedOnChordChange ? ' checked' : ''} />
+            <span>L3 수동 편집 멜로디 유지 (코드만 변경)</span>
+          </label>
+          <p class="l2-baked-guard-desc">${
+            preserveBakedOnChordChange
+              ? '마디 코드를 바꿔도 L3에서 편집한 멜로디를 유지하고 화성 색상만 다시 계산한다. (변형 체인 변경 시에는 L2 멜로디를 다시 생성한다.)'
+              : '마디 코드를 바꾸면 새 코드에 맞춰 L2 멜로디를 다시 생성한다.'
+          }</p>
+        </div>
+        <button class="btn btn-chip" id="btn-l2-reset-baked" type="button">L2 결과로 덮어쓰기</button>
+      </div>
+    `
+    : '';
+
   const chordSlots = project.chain.chords
     .slice(0, project.bars)
     .map((slot, idx) => {
@@ -406,15 +435,36 @@ function renderL2Body(project: SongProject, compiled: CompiledSong): string {
 
   return `
     <p class="section-title">마디별 코드 도수 직접 바꾸기 (L1 진행이 펼쳐진 상태)</p>
+    ${bakedGuardHtml}
     <div class="l2-chords-editor">${chordSlots}</div>
     <p class="section-title">멜로디·화성 변형 체인 (켜고 끄며 차이 듣기)</p>
     <div class="modifier-list">${modCards}</div>
   `;
 }
 
-function wireL2Events(container: HTMLElement, project: SongProject, callbacks: LayerCallbacks): void {
+function wireL2Events(
+  container: HTMLElement,
+  project: SongProject,
+  callbacks: LayerCallbacks,
+  preserveBakedOnChordChange: boolean
+): void {
   let workingProject = cloneProject(project);
+  let preserveBaked = preserveBakedOnChordChange;
   const modStartSnapshots = new Map<ModifierId, SongProject>();
+
+  const preserveChk = container.querySelector<HTMLInputElement>('#chk-preserve-baked');
+  preserveChk?.addEventListener('change', () => {
+    preserveBaked = preserveChk.checked;
+    callbacks.onTogglePreserveBaked?.(preserveChk.checked);
+  });
+
+  container.querySelector('#btn-l2-reset-baked')?.addEventListener('click', () => {
+    const next = cloneProject(workingProject);
+    next.baked = false;
+    next.bakedMelody = [];
+    workingProject = cloneProject(next);
+    callbacks.onProjectChange(next);
+  });
 
   container.querySelectorAll<HTMLSelectElement>('.sel-degree').forEach((sel) => {
     sel.addEventListener('change', () => {
@@ -423,7 +473,10 @@ function wireL2Events(container: HTMLElement, project: SongProject, callbacks: L
       if (next.chain.chords[bar]) {
         next.chain.chords[bar].degree = sel.value as SongProject['chain']['chords'][number]['degree'];
       }
-      next.baked = false;
+      const keepBaked = Boolean(workingProject.baked && workingProject.bakedMelody.length > 0 && preserveBaked);
+      if (!keepBaked) {
+        next.baked = false;
+      }
       workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
@@ -725,7 +778,7 @@ function renderL3Body(
           ${durationButtons}
           ${loopBadgeHtml}
         </div>
-        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 · 음표 드래그: 이동 · PC 건반(A~K)</span>
+        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸: 추가 · 클릭: 미리듣기 · 드래그: 이동 · 더블/우클릭·Del: 삭제 · PC 건반(A~K)</span>
       </div>
       <div class="pr-container">
         <div class="pr-keys-col">
@@ -734,7 +787,7 @@ function renderL3Body(
         </div>
         <div class="pr-grid-scroll">
           <div class="pr-bar-header" style="width:${svgW}px">${barHeaderCells}</div>
-          <svg class="pr-svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
+          <svg class="pr-svg" tabindex="0" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
             ${gridRows}
             ${chordHighlights}
             ${vLines}
@@ -893,6 +946,56 @@ function wireL3Events(
   if (!svg) return;
 
   const DRAG_THRESHOLD_PX = 4;
+  let selectedNoteId: string | null = null;
+  let lastClickNoteId: string | null = null;
+  let lastClickAt = 0;
+  let deletedInUpNoteId: string | null = null;
+
+  const selectNote = (id: string | null): void => {
+    selectedNoteId = id;
+    svg.querySelectorAll<SVGGElement>('.pr-note').forEach((el) => {
+      el.classList.toggle('selected', id !== null && el.dataset.noteId === id);
+    });
+  };
+
+  const deleteNoteById = (noteId: string): void => {
+    if (!compiled.melody.some((n) => n.id === noteId)) return;
+    const baseNotes: NoteEvent[] = compiled.melody.map(({ role: _r, ...rest }) => ({ ...rest }));
+    const next = cloneProject(project);
+    next.bakedMelody = deletePianoRollNote(baseNotes, noteId);
+    next.baked = true;
+    if (selectedNoteId === noteId) selectedNoteId = null;
+    callbacks.onProjectChange(next);
+  };
+
+  svg.addEventListener('dblclick', (e) => {
+    const targetEl = e.target as Element | null;
+    if (targetEl?.closest('.pr-note-resize')) return;
+    const noteGroup = targetEl?.closest<SVGGElement>('.pr-note') ?? null;
+    const noteId = noteGroup?.getAttribute('data-note-id');
+    if (!noteId) return;
+    if (deletedInUpNoteId === noteId) {
+      deletedInUpNoteId = null;
+      return;
+    }
+    deleteNoteById(noteId);
+  });
+
+  svg.addEventListener('contextmenu', (e) => {
+    const targetEl = e.target as Element | null;
+    const noteGroup = targetEl?.closest<SVGGElement>('.pr-note') ?? null;
+    const noteId = noteGroup?.getAttribute('data-note-id');
+    if (!noteId) return;
+    e.preventDefault();
+    deleteNoteById(noteId);
+  });
+
+  svg.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNoteId) {
+      e.preventDefault();
+      deleteNoteById(selectedNoteId);
+    }
+  });
 
   svg.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -904,6 +1007,8 @@ function wireL3Events(
 
     // 경우 A: 빈 칸 클릭 -> 새 음표 추가
     if (!noteGroup) {
+      selectNote(null);
+      svg.focus({ preventScroll: true });
       const rect = svg.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -958,7 +1063,8 @@ function wireL3Events(
       };
 
       const onMove = (ev: PointerEvent) => {
-        const rawEndStep = Math.round((ev.clientX - rect.left) / STEP_W);
+        const curRect = svg.getBoundingClientRect();
+        const rawEndStep = Math.round((ev.clientX - curRect.left) / STEP_W);
         const nextDuration = Math.max(1, Math.min(maxDuration, rawEndStep - targetNote.step));
         if (nextDuration !== curDuration) {
           curDuration = nextDuration;
@@ -1001,7 +1107,7 @@ function wireL3Events(
       return;
     }
 
-    // 경우 C: 음표 본체 드래그 -> 음높이/박자 이동, 단순 클릭 -> 삭제
+    // 경우 C: 음표 본체 드래그 -> 음높이/박자 이동, 단순 클릭 -> 선택/미리듣기, 더블클릭 -> 삭제
     const startClientX = e.clientX;
     const startClientY = e.clientY;
     const pointerStartStep = Math.floor((e.clientX - rect.left) / STEP_W);
@@ -1033,8 +1139,9 @@ function wireL3Events(
         raiseNoteOrder();
       }
 
-      const pointerStep = Math.floor((ev.clientX - rect.left) / STEP_W);
-      const pointerRow = Math.floor((ev.clientY - rect.top) / ROW_H);
+      const curRect = svg.getBoundingClientRect();
+      const pointerStep = Math.floor((ev.clientX - curRect.left) / STEP_W);
+      const pointerRow = Math.floor((ev.clientY - curRect.top) / ROW_H);
       const nextStep = Math.max(0, Math.min(compiled.totalSteps - 1, pointerStep - grabStepOffset));
       const nextMidi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, PR_MAX_MIDI - pointerRow));
 
@@ -1071,10 +1178,18 @@ function wireL3Events(
     const onUp = () => {
       cleanup();
       if (!hasDragged) {
-        const next = cloneProject(project);
-        next.bakedMelody = deletePianoRollNote(baseNotes, targetNote.id);
-        next.baked = true;
-        callbacks.onProjectChange(next);
+        svg.focus({ preventScroll: true });
+        const now = Date.now();
+        if (lastClickNoteId === targetNote.id && now - lastClickAt <= 350) {
+          lastClickNoteId = null;
+          deletedInUpNoteId = targetNote.id;
+          deleteNoteById(targetNote.id);
+          return;
+        }
+        selectNote(targetNote.id);
+        callbacks.onAuditionPitch(targetNote.midi);
+        lastClickNoteId = targetNote.id;
+        lastClickAt = now;
         return;
       }
 

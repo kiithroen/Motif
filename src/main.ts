@@ -233,7 +233,8 @@ function init(): void {
         : cloneProject(freeProject);
   let compiled = compileSong(project, chordView);
   let activeStep = -1;
-  let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
+  let selectedDuration = PRESETS.defaults.noteDurationSteps;
+  let preserveBakedOnChordChange = true;
   const history = new ProjectHistory();
   const mutes: TrackMuteState = createDefaultTrackMutes();
   let volumes: TrackVolumes = loadTrackVolumes();
@@ -901,8 +902,13 @@ function init(): void {
     renderLayerEditor(mainEl, project, compiled, activeStep, {
       selectedDuration,
       loopRange,
+      preserveBakedOnChordChange,
       onSelectDuration: (steps) => {
         selectedDuration = steps;
+        renderDynamicParts();
+      },
+      onTogglePreserveBaked: (preserve) => {
+        preserveBakedOnChordChange = preserve;
         renderDynamicParts();
       },
       onProjectChange: (next, options) => updateState(next, options),

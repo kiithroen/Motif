@@ -10,7 +10,8 @@
     "grooveId": "strum_8beat",
     "contourId": "arch",
     "energy": 0.65,
-    "density": 0.6
+    "density": 0.6,
+    "noteDurationSteps": 2
   },
   "progressions": [
     {
@@ -210,8 +211,10 @@
   ],
   "availableDegrees": ["I", "ii", "iii", "IV", "iv", "V", "V7", "vi", "vii°"],
   "noteDurationOptions": [
+    { "steps": 1, "labelKo": "16분 (1칸)" },
     { "steps": 2, "labelKo": "8분 (2칸)" },
     { "steps": 4, "labelKo": "4분 (4칸)" },
+    { "steps": 6, "labelKo": "점4분 (6칸)" },
     { "steps": 8, "labelKo": "2분 (8칸)" }
   ],
   "analyzerThresholds": {
