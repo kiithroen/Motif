@@ -1,5 +1,5 @@
 import type { CompiledSong } from './compiler';
-import type { DrumKind, SongProject } from './model';
+import type { ChordInstrument, DrumKind, SongProject } from './model';
 
 const PPQ = 480;
 const TICKS_PER_STEP = PPQ / 4; // 16분음표 1스텝 = 120틱
@@ -32,8 +32,20 @@ interface RawMidiEvent {
   bytes: number[];
 }
 
+function eventOrder(bytes: number[]): number {
+  const status = bytes[0] ?? 0;
+  if (status === 0xff) return 0; // Meta event (e.g. tempo)
+  const hi = status & 0xf0;
+  if (hi === 0xc0) return 1; // Program Change
+  if (hi === 0x80 || (hi === 0x90 && (bytes[2] ?? 0) === 0)) return 2; // Note Off
+  if (hi === 0x90) return 3; // Note On
+  return 4;
+}
+
 function encodeTrack(events: RawMidiEvent[]): number[] {
-  const sorted = [...events].sort((a, b) => a.tick - b.tick);
+  const sorted = [...events].sort((a, b) =>
+    a.tick !== b.tick ? a.tick - b.tick : eventOrder(a.bytes) - eventOrder(b.bytes)
+  );
   const data: number[] = [];
   let prevTick = 0;
   for (const ev of sorted) {
@@ -63,18 +75,23 @@ function buildNoteTrack(
   return encodeTrack(events);
 }
 
-export function exportToMidi(compiled: CompiledSong, project: SongProject): Uint8Array {
+export function exportToMidi(
+  compiled: CompiledSong,
+  project: SongProject,
+  chordInstrument: ChordInstrument = 'piano'
+): Uint8Array {
   const usPerBeat = Math.round(60_000_000 / Math.max(40, Math.min(240, project.bpm)));
   const tempoBytes = [(usPerBeat >>> 16) & 0xff, (usPerBeat >>> 8) & 0xff, usPerBeat & 0xff];
 
-  const melodyProgram = project.melodyInstrument === 'guitar' ? 24 : 4; // 24 Nylon Guitar / 4 Electric Piano
+  const melodyProgram = project.melodyInstrument === 'guitar' ? 24 : 0; // 24 Nylon Guitar / 0 Acoustic Grand Piano
   const melodyTrack = buildNoteTrack(compiled.melody, 0, [
     { tick: 0, bytes: [0xff, 0x51, 0x03, ...tempoBytes] },
     { tick: 0, bytes: [0xc0, melodyProgram] },
   ]);
 
+  const chordProgram = chordInstrument === 'guitar' ? 24 : 0; // 24 Nylon Guitar / 0 Acoustic Grand Piano
   const chordTrack = buildNoteTrack(compiled.chords, 1, [
-    { tick: 0, bytes: [0xc1, 25] }, // Steel Acoustic Guitar
+    { tick: 0, bytes: [0xc1, chordProgram] },
   ]);
 
   const bassTrack = buildNoteTrack(compiled.bass, 2, [

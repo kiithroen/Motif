@@ -100,9 +100,24 @@ function createDefaultSamplerBundle(ctx: AudioContext, buses: SamplerBuses): Sam
   };
 }
 
+type FallbackSourceNode = Pick<AudioScheduledSourceNode, 'stop' | 'onended'>;
+
+interface FallbackGainNode {
+  gain: {
+    cancelScheduledValues?: (t: number) => void;
+    setValueAtTime?: (v: number, t: number) => void;
+  };
+}
+
+interface ActiveFallbackVoice {
+  sources: FallbackSourceNode[];
+  envs: FallbackGainNode[];
+}
+
 export class MotifAudioEngine {
   private readonly samplerFactory: SamplerFactory;
   private readonly contextFactory?: () => AudioContext;
+  private readonly sampleLoadTimeoutMs: number;
 
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -119,12 +134,19 @@ export class MotifAudioEngine {
     bass: false,
     drums: false,
   };
+  private activeFallbackVoices = new Set<ActiveFallbackVoice>();
+  private sampleLoadTimerId: ReturnType<typeof setTimeout> | null = null;
   private sampleStatus: SampleLoadStatus = 'idle';
   private statusListeners = new Set<(status: SampleLoadStatus) => void>();
 
-  constructor(samplerFactory: SamplerFactory = createDefaultSamplerBundle, contextFactory?: () => AudioContext) {
+  constructor(
+    samplerFactory: SamplerFactory = createDefaultSamplerBundle,
+    contextFactory?: () => AudioContext,
+    sampleLoadTimeoutMs = 15000
+  ) {
     this.samplerFactory = samplerFactory;
     this.contextFactory = contextFactory;
+    this.sampleLoadTimeoutMs = sampleLoadTimeoutMs;
   }
 
   public getSampleStatus(): SampleLoadStatus {
@@ -244,12 +266,28 @@ export class MotifAudioEngine {
       let remaining = keys.length;
       let loadedCount = 0;
 
+      if (this.sampleLoadTimerId !== null) {
+        globalThis.clearTimeout(this.sampleLoadTimerId);
+        this.sampleLoadTimerId = null;
+      }
+      if (this.sampleLoadTimeoutMs > 0) {
+        this.sampleLoadTimerId = globalThis.setTimeout(() => {
+          this.sampleLoadTimerId = null;
+          if (this.sampleStatus === 'loading') {
+            this.setSampleStatus(loadedCount > 0 ? 'ready' : 'fallback');
+          }
+        }, this.sampleLoadTimeoutMs);
+      }
+
       for (const key of keys) {
         const voice = bundle[key];
         Promise.resolve(voice.load)
           .then(() => {
             this.readyVoices[key] = true;
             loadedCount += 1;
+            if (this.sampleStatus === 'fallback') {
+              this.setSampleStatus('ready');
+            }
           })
           .catch(() => {
             this.readyVoices[key] = false;
@@ -257,6 +295,10 @@ export class MotifAudioEngine {
           .finally(() => {
             remaining -= 1;
             if (remaining === 0) {
+              if (this.sampleLoadTimerId !== null) {
+                globalThis.clearTimeout(this.sampleLoadTimerId);
+                this.sampleLoadTimerId = null;
+              }
               this.setSampleStatus(loadedCount > 0 ? 'ready' : 'fallback');
             }
           });
@@ -271,18 +313,49 @@ export class MotifAudioEngine {
     return this.ensureContext().currentTime;
   }
 
+  private registerFallbackVoice(sources: FallbackSourceNode[], envs: FallbackGainNode[]): void {
+    const entry: ActiveFallbackVoice = { sources, envs };
+    this.activeFallbackVoices.add(entry);
+    const primary = sources[0];
+    if (primary) {
+      primary.onended = () => {
+        this.activeFallbackVoices.delete(entry);
+      };
+    }
+  }
+
   public stopAll(): void {
-    if (!this.samplers) return;
-    const t = this.ctx?.currentTime;
-    const voices: VoiceKey[] = ['piano', 'guitar', 'bass', 'drums'];
-    for (const key of voices) {
-      if (!this.readyVoices[key]) continue;
-      try {
-        this.samplers[key].stop?.(t);
-      } catch {
-        // 개별 샘플러 정지 오류는 무시한다.
+    const t = this.ctx?.currentTime ?? 0;
+    if (this.samplers) {
+      const voices: VoiceKey[] = ['piano', 'guitar', 'bass', 'drums'];
+      for (const key of voices) {
+        if (!this.readyVoices[key]) continue;
+        try {
+          this.samplers[key].stop?.(t);
+        } catch {
+          // 개별 샘플러 정지 오류는 무시한다.
+        }
       }
     }
+
+    for (const voice of this.activeFallbackVoices) {
+      for (const env of voice.envs) {
+        try {
+          env.gain.cancelScheduledValues?.(t);
+          env.gain.setValueAtTime?.(0.0001, t);
+        } catch {
+          // 엔벨로프 정리 오류는 무시한다.
+        }
+      }
+      for (const src of voice.sources) {
+        try {
+          src.stop(t);
+        } catch {
+          // 이미 종료된 소스 정지 오류는 무시한다.
+        }
+      }
+    }
+    this.activeFallbackVoices.clear();
   }
 
   private buildNoiseBuffer(ctx: AudioContext): AudioBuffer {
@@ -424,6 +497,7 @@ export class MotifAudioEngine {
     filter.connect(env);
     env.connect(this.pianoBus);
 
+    this.registerFallbackVoice([fundamental, h2, h3], [env]);
     fundamental.start(t0);
     h2.start(t0);
     h3.start(t0);
@@ -472,6 +546,7 @@ export class MotifAudioEngine {
     pluckFilter.connect(env);
     env.connect(this.guitarBus);
 
+    this.registerFallbackVoice([body, harmonic], [env]);
     body.start(t0);
     harmonic.start(t0);
     body.stop(end + 0.02);
@@ -513,6 +588,7 @@ export class MotifAudioEngine {
     lp.connect(env);
     env.connect(this.bassBus);
 
+    this.registerFallbackVoice([tri, sub], [env]);
     tri.start(t0);
     sub.start(t0);
     tri.stop(end + 0.02);
@@ -535,6 +611,7 @@ export class MotifAudioEngine {
 
       osc.connect(g);
       g.connect(this.drumBus);
+      this.registerFallbackVoice([osc], [g]);
       osc.start(t0);
       osc.stop(t0 + 0.26);
       return;
@@ -567,6 +644,7 @@ export class MotifAudioEngine {
       tone.connect(tg);
       tg.connect(this.drumBus);
 
+      this.registerFallbackVoice([noise, tone], [ng, tg]);
       noise.start(t0);
       noise.stop(t0 + 0.16);
       tone.start(t0);
@@ -586,6 +664,7 @@ export class MotifAudioEngine {
     hat.connect(hp);
     hp.connect(hg);
     hg.connect(this.drumBus);
+    this.registerFallbackVoice([hat], [hg]);
     hat.start(t0);
     hat.stop(t0 + 0.065);
   }

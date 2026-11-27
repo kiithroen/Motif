@@ -147,16 +147,56 @@ export function resolveChord(degree: DegreeSymbol, keyRoot: number, mode: ScaleM
   };
 }
 
+const SHARP_TO_FLAT_ROOT: Record<string, string> = {
+  'C#': 'Db',
+  'D#': 'Eb',
+  'F#': 'Gb',
+  'G#': 'Ab',
+  'A#': 'Bb',
+};
+
 export function getGuitarDiagram(chord: ResolvedChord): GuitarChordDiagram {
   const exact = GUITAR_CHORDS[chord.symbol];
   if (exact) {
     return { symbol: chord.symbol, frets: [...exact.frets], baseFret: exact.baseFret };
   }
-  const baseSymbol = `${NOTE_NAMES_SHARP[chord.rootPc]}${chord.quality === 'minor' ? 'm' : ''}`;
-  const fallback = GUITAR_CHORDS[baseSymbol];
-  if (fallback) {
-    return { symbol: chord.symbol, frets: [...fallback.frets], baseFret: fallback.baseFret };
+
+  const sharpRoot = NOTE_NAMES_SHARP[chord.rootPc];
+  const flatRoot = SHARP_TO_FLAT_ROOT[sharpRoot];
+  if (flatRoot) {
+    const flatSymbol = `${flatRoot}${QUALITY_SUFFIX[chord.quality]}`;
+    const flatMatch = GUITAR_CHORDS[flatSymbol];
+    if (flatMatch) {
+      return { symbol: chord.symbol, frets: [...flatMatch.frets], baseFret: flatMatch.baseFret };
+    }
   }
+
+  if (chord.quality !== 'dim') {
+    const baseSymbol = `${sharpRoot}${chord.quality === 'minor' ? 'm' : ''}`;
+    const fallback = GUITAR_CHORDS[baseSymbol];
+    if (fallback) {
+      return { symbol: chord.symbol, frets: [...fallback.frets], baseFret: fallback.baseFret };
+    }
+    if (flatRoot) {
+      const flatBaseSymbol = `${flatRoot}${chord.quality === 'minor' ? 'm' : ''}`;
+      const flatFallback = GUITAR_CHORDS[flatBaseSymbol];
+      if (flatFallback) {
+        return { symbol: chord.symbol, frets: [...flatFallback.frets], baseFret: flatFallback.baseFret };
+      }
+    }
+  }
+
+  if (chord.quality === 'dim') {
+    // 5번줄(A2, pc=9) 기준 무버블 감3화음 폼(R-b5-R-b3)을 계산한다.
+    const shift = wrapPc(chord.rootPc - 9);
+    const frets = [-1, shift, shift + 1, shift + 2, shift + 1, -1];
+    return {
+      symbol: chord.symbol,
+      frets,
+      baseFret: shift <= 2 ? 1 : shift,
+    };
+  }
+
   // 6번줄(E2, pc=4) 바레 코드 형태로 자동 계산한다.
   const shift = wrapPc(chord.rootPc - 4) || 12;
   const shape =
@@ -175,8 +215,8 @@ export function getGuitarDiagram(chord: ResolvedChord): GuitarChordDiagram {
 export function classifyPitch(
   midi: number,
   chord: ResolvedChord,
-  keyRoot: number,
-  mode: ScaleMode,
+  _keyRoot: number,
+  _mode: ScaleMode,
   stepInBar: number,
   duration: number
 ): HarmonicRole {
@@ -193,8 +233,6 @@ export function classifyPitch(
     return 'clash';
   }
 
-  const inScale = getScalePitchClasses(keyRoot, mode).includes(pc);
-  if (!inScale) return 'clash';
   return duration <= 2 && !isStrongBeat ? 'passing' : 'scale_tension';
 }
 

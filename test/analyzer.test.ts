@@ -64,4 +64,67 @@ describe('music theory analyzer and deliberate fault checks', () => {
     const report = analyzeSong(compileSong(p), p);
     expect(report.issues.find((i) => i.kind === 'out_of_scale')).toBeUndefined();
   });
+
+  it('catches non-clashing out_of_scale note and resolves it via applyFix', () => {
+    const p = createDefaultProject();
+    p.baked = true;
+    p.bakedMelody = [
+      { id: 'n1', midi: 64, step: 0, duration: 2, velocity: 0.8 },
+      { id: 'n2', midi: 70, step: 2, duration: 2, velocity: 0.8 }, // Bb4 on C major weak beat -> out_of_scale
+      { id: 'n3', midi: 67, step: 16, duration: 8, velocity: 0.8 },
+      { id: 'n4', midi: 69, step: 32, duration: 8, velocity: 0.8 },
+      { id: 'n5', midi: 60, step: 48, duration: 12, velocity: 0.8 },
+    ];
+    const report = analyzeSong(compileSong(p), p);
+    const outIssue = report.issues.find((i) => i.kind === 'out_of_scale');
+    expect(outIssue).toBeDefined();
+
+    const fixed = outIssue!.applyFix(p);
+    const after = analyzeSong(compileSong(fixed), fixed);
+    expect(after.issues.find((i) => i.kind === 'out_of_scale')).toBeUndefined();
+  });
+
+  it('resolves monotone_rhythm on dense 8th-note melody and no_breathing_room when step 12 is short', () => {
+    // 1) 모든 음표가 2스텝(8분음표)으로 꽉 찬 멜로디 -> monotone_rhythm 해소 확인
+    const pMono = createDefaultProject();
+    pMono.baked = true;
+    pMono.bakedMelody = Array.from({ length: 32 }, (_, idx) => ({
+      id: `m_${idx}`,
+      midi: idx % 2 === 0 ? 64 : 67,
+      step: idx * 2,
+      duration: 2,
+      velocity: 0.8,
+    }));
+    const monoReport = analyzeSong(compileSong(pMono), pMono);
+    const monoIssue = monoReport.issues.find((i) => i.kind === 'monotone_rhythm');
+    expect(monoIssue).toBeDefined();
+    const monoFixed = monoIssue!.applyFix(pMono);
+    const monoAfter = analyzeSong(compileSong(monoFixed), monoFixed);
+    expect(monoAfter.issues.find((i) => i.kind === 'monotone_rhythm')).toBeUndefined();
+
+    // 2) 다양한 길이로 64스텝이 꽉 차 있고 step 12가 2칸인 멜로디 -> no_breathing_room 해소 확인
+    const pRest = createDefaultProject();
+    pRest.baked = true;
+    pRest.bakedMelody = [];
+    let cursor = 0;
+    let seq = 0;
+    while (cursor < 64) {
+      const local = cursor % 16;
+      const dur = local === 12 ? 2 : local === 14 ? 2 : local === 0 ? 6 : local === 6 ? 4 : 2;
+      pRest.bakedMelody.push({
+        id: `r_${seq++}`,
+        midi: seq % 2 === 0 ? 64 : 67,
+        step: cursor,
+        duration: Math.min(dur, 64 - cursor),
+        velocity: 0.8,
+      });
+      cursor += dur;
+    }
+    const restReport = analyzeSong(compileSong(pRest), pRest);
+    const restIssue = restReport.issues.find((i) => i.kind === 'no_breathing_room');
+    expect(restIssue).toBeDefined();
+    const restFixed = restIssue!.applyFix(pRest);
+    const restAfter = analyzeSong(compileSong(restFixed), restFixed);
+    expect(restAfter.issues.find((i) => i.kind === 'no_breathing_room')).toBeUndefined();
+  });
 });

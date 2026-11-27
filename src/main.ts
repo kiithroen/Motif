@@ -39,7 +39,7 @@ import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory'
 import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
 import { type GeminiCoachUiState, renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
-import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
+import { type ProjectChangeOptions, renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
 
 const STORAGE_KEY = 'motif_project_v1';
@@ -160,7 +160,7 @@ function saveProgress(key: string, progress: ProgressStore): void {
 
 function downloadMidi(project: SongProject, chordView: ChordInstrument): void {
   const compiled = compileSong(project, chordView);
-  const bytes = exportToMidi(compiled, project);
+  const bytes = exportToMidi(compiled, project, chordView);
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   const blob = new Blob([copy.buffer], { type: 'audio/midi' });
@@ -409,7 +409,17 @@ function init(): void {
     loadWorkspaceProject(freeProject);
   }
 
-  function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
+  function updateState(
+    next: SongProject,
+    optionsOrAudioOnly: boolean | ProjectChangeOptions = false,
+    recordHistoryArg = true
+  ): void {
+    const opts: ProjectChangeOptions =
+      typeof optionsOrAudioOnly === 'boolean'
+        ? { recompileAudioOnly: optionsOrAudioOnly, recordHistory: recordHistoryArg }
+        : optionsOrAudioOnly;
+    const recompileAudioOnly = opts.recompileAudioOnly ?? false;
+    const recordHistory = opts.recordHistory ?? true;
     const prev = project;
     const tabOnly = isTabOnlyChange(prev, next);
 
@@ -428,7 +438,7 @@ function init(): void {
     }
 
     if (recordHistory && !tabOnly && !recompileAudioOnly) {
-      history.push(prev);
+      history.push(opts.historyBase ?? prev);
     }
 
     if (!tabOnly && !recompileAudioOnly) {
@@ -626,17 +636,23 @@ function init(): void {
       updateState(next);
     });
 
-    topbarEl.querySelector('#sl-bpm')?.addEventListener('input', (e) => {
+    let bpmStart: SongProject | null = null;
+    const bpmSlider = topbarEl.querySelector<HTMLInputElement>('#sl-bpm');
+    bpmSlider?.addEventListener('input', () => {
+      if (!bpmStart) bpmStart = cloneProject(project);
       const next = cloneProject(project);
-      next.bpm = Number((e.target as HTMLInputElement).value);
+      next.bpm = Number(bpmSlider.value);
       const valEl = topbarEl.querySelector('#bpm-val');
       if (valEl) valEl.textContent = String(next.bpm);
-      project = next;
-      if (appMode === 'free') {
-        freeProject = cloneProject(project);
-        saveProject(freeProject);
-      }
-      transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+      updateState(next, { recompileAudioOnly: true, recordHistory: false });
+    });
+    bpmSlider?.addEventListener('change', () => {
+      if (!bpmStart) bpmStart = cloneProject(project);
+      const next = cloneProject(project);
+      next.bpm = Number(bpmSlider.value);
+      const historyBase = bpmStart;
+      bpmStart = null;
+      updateState(next, { recompileAudioOnly: false, recordHistory: true, historyBase });
     });
 
     topbarEl.querySelector('#sel-inst')?.addEventListener('change', (e) => {
@@ -706,7 +722,7 @@ function init(): void {
         selectedDuration = steps;
         renderDynamicParts();
       },
-      onProjectChange: (next, audioOnly) => updateState(next, audioOnly),
+      onProjectChange: (next, options) => updateState(next, options),
       onAuditionPitch: auditionPitch,
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId, chordView);
@@ -1092,6 +1108,10 @@ function init(): void {
   }
 
   window.addEventListener('keydown', (e) => {
+    const isMapScreen =
+      (appMode === 'basics' && basicsScreen === 'map') ||
+      (appMode === 'lesson' && lessonScreen === 'map');
+    if (isMapScreen) return;
     const target = e.target as HTMLElement | null;
     const tag = target?.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) return;

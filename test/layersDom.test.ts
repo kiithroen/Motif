@@ -228,4 +228,74 @@ describe('L3 PianoRoll pointer interactions', () => {
     const added = updated.bakedMelody.find((n) => n.step === 16);
     expect(added).toMatchObject({ midi: 79, duration: 4, origin: 'user' });
   });
+
+  it('keeps L1 density and L2 modifier slider DOM intact during input drag and commits one history step on change', () => {
+    const l1Proj = createDefaultProject();
+    l1Proj.activeLayer = 'L1';
+    const initialDensity = l1Proj.blocks.density;
+    const onL1Change = vi.fn();
+
+    renderLayerEditor(container, l1Proj, compileSong(l1Proj), -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange: onL1Change,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const densitySlider = container.querySelector<HTMLInputElement>('#sl-density')!;
+    densitySlider.value = '0.75';
+    densitySlider.dispatchEvent(new Event('input', { bubbles: true }));
+    densitySlider.value = '0.85';
+    densitySlider.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(container.querySelector('#sl-density')).toBe(densitySlider);
+    expect(container.querySelector('#density-val')?.textContent).toBe('85%');
+    expect(onL1Change).toHaveBeenCalledTimes(2);
+    expect(onL1Change.mock.calls[0][1]).toEqual({ recompileAudioOnly: true, recordHistory: false });
+    expect(onL1Change.mock.calls[1][1]).toEqual({ recompileAudioOnly: true, recordHistory: false });
+
+    densitySlider.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onL1Change).toHaveBeenCalledTimes(3);
+    expect(onL1Change.mock.calls[2][1]).toMatchObject({
+      recompileAudioOnly: false,
+      recordHistory: true,
+    });
+    expect((onL1Change.mock.calls[2][1] as { historyBase: SongProject }).historyBase.blocks.density).toBe(
+      initialDensity
+    );
+
+    const l2Proj = createDefaultProject();
+    l2Proj.activeLayer = 'L2';
+    const onL2Change = vi.fn();
+    renderLayerEditor(container, l2Proj, compileSong(l2Proj), -1, {
+      selectedDuration: 2,
+      onSelectDuration: vi.fn(),
+      onProjectChange: onL2Change,
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+    });
+
+    const modSlider = container.querySelector<HTMLInputElement>('.sl-mod[data-mod="syncopation"]')!;
+    modSlider.value = '0.45';
+    modSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    modSlider.value = '0.8';
+    modSlider.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(container.querySelector('.sl-mod[data-mod="syncopation"]')).toBe(modSlider);
+    expect(modSlider.closest('.mod-card')?.classList.contains('enabled')).toBe(true);
+    expect(onL2Change).toHaveBeenCalledTimes(2);
+    expect(onL2Change.mock.calls[0][1]).toEqual({ recompileAudioOnly: true, recordHistory: false });
+
+    modSlider.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onL2Change).toHaveBeenCalledTimes(3);
+    const modOpts = onL2Change.mock.calls[2][1] as {
+      recompileAudioOnly: boolean;
+      recordHistory: boolean;
+      historyBase: SongProject;
+    };
+    expect(modOpts.recompileAudioOnly).toBe(false);
+    expect(modOpts.recordHistory).toBe(true);
+    expect(modOpts.historyBase.chain.modifiers.find((m) => m.id === 'syncopation')?.enabled).toBe(false);
+  });
 });

@@ -199,14 +199,53 @@ export function analyzeSong(compiled: CompiledSong, project: SongProject): Diagn
         affectedNoteIds: melody.filter((_, i) => i % 2 === 1).map((n) => n.id),
         applyFix: (proj) => {
           const next = cloneProject(proj);
-          const notes = getEditableMelody(compiled, next);
+          const notes = getEditableMelody(compiled, next).sort(
+            (a, b) => a.step - b.step || a.midi - b.midi
+          );
           for (let i = 0; i < notes.length; i++) {
-            const bar = Math.floor(notes[i].step / 16);
-            if (bar % 2 === 1 && notes[i].step % 16 >= 8) {
-              notes[i].duration = Math.min(compiled.totalSteps - notes[i].step, Math.max(4, notes[i].duration * 2));
-              notes[i].origin = 'user';
+            const cur = notes[i];
+            const bar = Math.floor(cur.step / 16);
+            if (bar % 2 === 1 && cur.step % 16 >= 8) {
+              const targetDur = Math.min(
+                compiled.totalSteps - cur.step,
+                Math.max(4, cur.duration * 2)
+              );
+              if (targetDur > cur.duration) {
+                cur.duration = targetDur;
+                cur.origin = 'user';
+                while (i + 1 < notes.length && notes[i + 1].step < cur.step + targetDur) {
+                  notes.splice(i + 1, 1);
+                }
+              }
             }
           }
+
+          const checkMonotone = (list: typeof notes): boolean => {
+            if (list.length < 4) return false;
+            const counts = new Map<number, number>();
+            for (const n of list) counts.set(n.duration, (counts.get(n.duration) ?? 0) + 1);
+            return Math.max(...counts.values()) / list.length > th.maxSameDurationRatio;
+          };
+
+          if (checkMonotone(notes)) {
+            for (let i = 1; i < notes.length && checkMonotone(notes); i += 2) {
+              const cur = notes[i];
+              if (cur.duration > 1) {
+                cur.duration = Math.max(1, Math.floor(cur.duration / 2));
+                cur.origin = 'user';
+              } else {
+                const targetDur = Math.min(compiled.totalSteps - cur.step, 2);
+                if (targetDur > cur.duration) {
+                  cur.duration = targetDur;
+                  cur.origin = 'user';
+                  while (i + 1 < notes.length && notes[i + 1].step < cur.step + targetDur) {
+                    notes.splice(i + 1, 1);
+                  }
+                }
+              }
+            }
+          }
+
           next.bakedMelody = notes;
           next.baked = true;
           return next;
@@ -219,18 +258,45 @@ export function analyzeSong(compiled: CompiledSong, project: SongProject): Diagn
         severity: 'tip',
         bar: project.bars,
         title: '쉼표(여백)가 부족함',
-        explanation: `음표가 빈틈없이 꽉 차 있어 귀가 쉴 틈이 적다. 끝 박자 음 길이를 절반으로 줄여 여백을 남기면 프레이즈가 또렷해진다.`,
+        explanation: `음표가 빈틈없이 꽉 차 있어 귀가 쉴 틈이 적다. 마디 끝 음 길이를 줄여 여백을 남기면 프레이즈가 또렷해진다.`,
         affectedNoteIds: [melody[melody.length - 1].id],
         applyFix: (proj) => {
           const next = cloneProject(proj);
-          const notes = getEditableMelody(compiled, next);
-          const out = notes.map((n) => {
-            if (n.step % 16 === 12 && n.duration >= 4) {
-              return { ...n, duration: 2, origin: 'user' as const };
+          const notes = getEditableMelody(compiled, next).sort(
+            (a, b) => a.step - b.step || a.midi - b.midi
+          );
+          const targetRestSteps = Math.ceil(compiled.totalSteps * th.minRestRatio);
+          const currentSound = notes.reduce((acc, n) => acc + n.duration, 0);
+          let deficit = targetRestSteps - Math.max(0, compiled.totalSteps - currentSound);
+
+          const orderedIndices = [
+            ...notes.map((_, idx) => idx).filter((idx) => notes[idx].step % 16 >= 8).reverse(),
+            ...notes.map((_, idx) => idx).filter((idx) => notes[idx].step % 16 < 8).reverse(),
+          ];
+
+          for (const idx of orderedIndices) {
+            if (deficit <= 0) break;
+            const n = notes[idx];
+            if (n.duration > 1) {
+              const nextDur = Math.max(1, Math.floor(n.duration / 2));
+              deficit -= n.duration - nextDur;
+              n.duration = nextDur;
+              n.origin = 'user';
             }
-            return n;
-          });
-          next.bakedMelody = out;
+          }
+
+          if (deficit > 0) {
+            const removeIds = new Set<string>();
+            for (const idx of orderedIndices) {
+              if (deficit <= 0 || notes.length - removeIds.size <= 1) break;
+              const n = notes[idx];
+              removeIds.add(n.id);
+              deficit -= n.duration;
+            }
+            next.bakedMelody = notes.filter((n) => !removeIds.has(n.id));
+          } else {
+            next.bakedMelody = notes;
+          }
           next.baked = true;
           return next;
         },

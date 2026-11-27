@@ -10,7 +10,7 @@ import {
   buildDefaultModifiers,
   createDefaultProject,
 } from './model';
-import { type DegreeSymbol, type ScaleMode, wrapPc } from './theory';
+import { type DegreeSymbol, type ScaleMode, getScalePitchClasses, wrapPc } from './theory';
 
 export type BasicLessonWorkspaceKind = 'chord_tone_pick' | 'piano_roll' | 'chord_swap' | 'classic_arrange';
 export type BasicLessonKindTag = '개념' | '반복' | '클래식' | '종합';
@@ -224,11 +224,17 @@ function evaluateRule(
     case 'no_issue':
       return !report.issues.some((i) => i.kind === rule.issueKind);
 
-    case 'min_non_downbeat_scale_notes':
+    case 'min_non_downbeat_scale_notes': {
+      const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
       return (
-        compiled.melody.filter((n) => n.step % 16 !== 0 && n.role !== 'clash').length >=
-        rule.minCount
+        compiled.melody.filter(
+          (n) =>
+            n.step % 16 !== 0 &&
+            n.role !== 'clash' &&
+            (scalePcs.has(wrapPc(n.midi)) || n.role === 'chord_tone')
+        ).length >= rule.minCount
       );
+    }
 
     case 'min_distinct_durations':
       return new Set(compiled.melody.map((n) => n.duration)).size >= rule.minCount;

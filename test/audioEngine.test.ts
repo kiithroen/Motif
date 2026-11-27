@@ -17,7 +17,7 @@ function makeAudioParam(initial = 0) {
 }
 
 function createMockAudioContext() {
-  const createdOscillators: unknown[] = [];
+  const createdOscillators: Array<{ stop: ReturnType<typeof vi.fn>; onended?: (() => void) | null }> = [];
   const ctx = {
     currentTime: 10,
     sampleRate: 44100,
@@ -33,7 +33,10 @@ function createMockAudioContext() {
       connect: vi.fn(),
     })),
     createGain: vi.fn(() => ({
-      gain: makeAudioParam(1),
+      gain: {
+        ...makeAudioParam(1),
+        cancelScheduledValues: vi.fn(),
+      },
       connect: vi.fn(),
     })),
     createBiquadFilter: vi.fn(() => ({
@@ -50,6 +53,7 @@ function createMockAudioContext() {
         connect: vi.fn(),
         start: vi.fn(),
         stop: vi.fn(),
+        onended: null as (() => void) | null,
       };
       createdOscillators.push(osc);
       return osc;
@@ -62,6 +66,7 @@ function createMockAudioContext() {
       connect: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
+      onended: null as (() => void) | null,
     })),
   } as unknown as AudioContext;
 
@@ -209,5 +214,47 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
     expect(guitar.start).not.toHaveBeenCalled();
     expect(bass.start).not.toHaveBeenCalled();
     expect(drums.start).not.toHaveBeenCalled();
+
+    // 폴백 재생 중 stopAll 호출 시 스케줄된 폴백 오실레이터도 즉시 정지된다.
+    const stopsBefore = createdOscillators.reduce((sum, osc) => sum + osc.stop.mock.calls.length, 0);
+    engine.stopAll();
+    const stopsAfter = createdOscillators.reduce((sum, osc) => sum + osc.stop.mock.calls.length, 0);
+    expect(stopsAfter).toBeGreaterThan(stopsBefore);
+    expect(createdOscillators[createdOscillators.length - 1].stop).toHaveBeenLastCalledWith(10);
+  });
+
+  it('transitions to fallback on sample load timeout and recovers if a voice resolves later', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ctx } = createMockAudioContext();
+      const piano = deferredVoice();
+      const guitar = deferredVoice();
+      const bass = deferredVoice();
+      const drums = deferredVoice();
+
+      const engine = new MotifAudioEngine(
+        () => ({
+          piano: piano.voice,
+          guitar: guitar.voice,
+          bass: bass.voice,
+          drums: drums.voice,
+          drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+        }),
+        () => ctx,
+        25
+      );
+
+      engine.preload();
+      expect(engine.getSampleStatus()).toBe('loading');
+
+      vi.advanceTimersByTime(30);
+      expect(engine.getSampleStatus()).toBe('fallback');
+
+      piano.resolveLoad();
+      await flushMicrotasks();
+      expect(engine.getSampleStatus()).toBe('ready');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

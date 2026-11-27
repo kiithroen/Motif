@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import guitarChordsRaw from '../src/data/guitarChords.json';
 import {
   classifyPitch,
   getGuitarDiagram,
@@ -7,6 +8,7 @@ import {
   noteName,
   resolveChord,
   snapToScale,
+  wrapPc,
 } from '../src/core/theory';
 
 describe('music theory helpers', () => {
@@ -42,5 +44,28 @@ describe('music theory helpers', () => {
     expect(classifyPitch(65, cMaj, 0, 'major', 0, 4)).toBe('clash'); // F against E on strong beat
     expect(classifyPitch(62, cMaj, 0, 'major', 2, 2)).toBe('passing'); // D weak 8th passing
     expect(snapToScale(61, 0, 'major')).toBe(60);
+  });
+
+  it('matches enharmonic sharp roots to flat chord diagrams and builds dim voicings', () => {
+    const chords = guitarChordsRaw as Record<string, { frets: number[]; baseFret: number }>;
+    const aSharp = getGuitarDiagram(resolveChord('IV', 5, 'major')); // A# -> Bb
+    expect(aSharp.frets).toEqual(chords.Bb.frets);
+    const aSharpMinor = getGuitarDiagram(resolveChord('iv', 5, 'major')); // A#m -> Bbm
+    expect(aSharpMinor.frets).toEqual(chords.Bbm.frets);
+
+    const openStrings = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4
+    for (const [keyRoot, mode] of [
+      [0, 'minor'], // Ddim
+      [6, 'minor'], // G#dim
+    ] as const) {
+      const dimChord = resolveChord('ii', keyRoot, mode);
+      const diag = getGuitarDiagram(dimChord);
+      const soundedPcs = new Set(
+        diag.frets
+          .map((fret, stringIdx) => (fret >= 0 ? wrapPc(openStrings[stringIdx] + fret) : -1))
+          .filter((pc) => pc >= 0)
+      );
+      expect(soundedPcs).toEqual(new Set(dimChord.pitchClasses));
+    }
   });
 });

@@ -18,10 +18,16 @@ import {
   wrapPc,
 } from '../core/theory';
 
+export interface ProjectChangeOptions {
+  recompileAudioOnly?: boolean;
+  recordHistory?: boolean;
+  historyBase?: SongProject;
+}
+
 export interface LayerCallbacks {
   selectedDuration: number;
   onSelectDuration: (steps: number) => void;
-  onProjectChange: (next: SongProject, recompileAudioOnly?: boolean) => void;
+  onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
 }
@@ -79,7 +85,7 @@ export interface FocusedPianoRollOptions {
   showUnbake?: boolean;
   selectedDuration: number;
   onSelectDuration: (steps: number) => void;
-  onProjectChange: (next: SongProject, recompileAudioOnly?: boolean) => void;
+  onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
 }
 
@@ -233,7 +239,7 @@ function renderL1Body(project: SongProject): string {
         <input id="sl-energy" type="range" min="0.2" max="1" step="0.05" value="${project.blocks.energy}" />
       </div>
       <div class="slider-box">
-        <div class="slider-label"><span>멜로디 음 수 (듬성↔촘촘)</span><span>${Math.round(project.blocks.density * 100)}%</span></div>
+        <div class="slider-label"><span>멜로디 음 수 (듬성↔촘촘)</span><span id="density-val">${Math.round(project.blocks.density * 100)}%</span></div>
         <input id="sl-density" type="range" min="0.2" max="1" step="0.05" value="${project.blocks.density}" />
       </div>
     </div>
@@ -241,11 +247,16 @@ function renderL1Body(project: SongProject): string {
 }
 
 function wireL1Events(container: HTMLElement, project: SongProject, callbacks: LayerCallbacks): void {
+  let workingProject = cloneProject(project);
+  let energyStart: SongProject | null = null;
+  let densityStart: SongProject | null = null;
+
   container.querySelectorAll<HTMLButtonElement>('[data-prog]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const next = cloneProject(project);
+      const next = cloneProject(workingProject);
       next.blocks.progressionId = btn.dataset.prog!;
       next.baked = false;
+      workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
   });
@@ -254,35 +265,72 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
     btn.addEventListener('click', () => {
       const gId = btn.dataset.groove!;
       const preset = PRESETS.grooves.find((g) => g.id === gId);
-      const next = cloneProject(project);
+      const next = cloneProject(workingProject);
       next.blocks.grooveId = gId;
       if (preset) next.bpm = preset.defaultBpm;
+      workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
   });
 
   container.querySelectorAll<HTMLButtonElement>('[data-contour]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const next = cloneProject(project);
+      const next = cloneProject(workingProject);
       next.blocks.contourId = btn.dataset.contour!;
       next.baked = false;
+      workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
   });
 
-  container.querySelector('#sl-energy')?.addEventListener('input', (e) => {
-    const next = cloneProject(project);
-    next.blocks.energy = Number((e.target as HTMLInputElement).value);
+  const energySlider = container.querySelector<HTMLInputElement>('#sl-energy');
+  energySlider?.addEventListener('input', () => {
+    if (!energyStart) energyStart = cloneProject(workingProject);
+    const next = cloneProject(workingProject);
+    next.blocks.energy = Number(energySlider.value);
+    workingProject = cloneProject(next);
     const valEl = container.querySelector('#energy-val');
     if (valEl) valEl.textContent = `${Math.round(next.blocks.energy * 100)}%`;
-    callbacks.onProjectChange(next, true);
+    callbacks.onProjectChange(next, { recompileAudioOnly: true, recordHistory: false });
+  });
+  energySlider?.addEventListener('change', () => {
+    if (!energyStart) energyStart = cloneProject(workingProject);
+    const next = cloneProject(workingProject);
+    next.blocks.energy = Number(energySlider.value);
+    const historyBase = energyStart;
+    energyStart = null;
+    workingProject = cloneProject(next);
+    callbacks.onProjectChange(next, {
+      recompileAudioOnly: false,
+      recordHistory: true,
+      historyBase,
+    });
   });
 
-  container.querySelector('#sl-density')?.addEventListener('input', (e) => {
-    const next = cloneProject(project);
-    next.blocks.density = Number((e.target as HTMLInputElement).value);
+  const densitySlider = container.querySelector<HTMLInputElement>('#sl-density');
+  densitySlider?.addEventListener('input', () => {
+    if (!densityStart) densityStart = cloneProject(workingProject);
+    const next = cloneProject(workingProject);
+    next.blocks.density = Number(densitySlider.value);
     next.baked = false;
-    callbacks.onProjectChange(next);
+    workingProject = cloneProject(next);
+    const valEl = container.querySelector('#density-val');
+    if (valEl) valEl.textContent = `${Math.round(next.blocks.density * 100)}%`;
+    callbacks.onProjectChange(next, { recompileAudioOnly: true, recordHistory: false });
+  });
+  densitySlider?.addEventListener('change', () => {
+    if (!densityStart) densityStart = cloneProject(workingProject);
+    const next = cloneProject(workingProject);
+    next.blocks.density = Number(densitySlider.value);
+    next.baked = false;
+    const historyBase = densityStart;
+    densityStart = null;
+    workingProject = cloneProject(next);
+    callbacks.onProjectChange(next, {
+      recompileAudioOnly: false,
+      recordHistory: true,
+      historyBase,
+    });
   });
 }
 
@@ -343,14 +391,18 @@ function renderL2Body(project: SongProject, compiled: CompiledSong): string {
 }
 
 function wireL2Events(container: HTMLElement, project: SongProject, callbacks: LayerCallbacks): void {
+  let workingProject = cloneProject(project);
+  const modStartSnapshots = new Map<ModifierId, SongProject>();
+
   container.querySelectorAll<HTMLSelectElement>('.sel-degree').forEach((sel) => {
     sel.addEventListener('change', () => {
       const bar = Number(sel.dataset.bar);
-      const next = cloneProject(project);
+      const next = cloneProject(workingProject);
       if (next.chain.chords[bar]) {
         next.chain.chords[bar].degree = sel.value as SongProject['chain']['chords'][number]['degree'];
       }
       next.baked = false;
+      workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
   });
@@ -358,24 +410,51 @@ function wireL2Events(container: HTMLElement, project: SongProject, callbacks: L
   container.querySelectorAll<HTMLInputElement>('.chk-mod').forEach((chk) => {
     chk.addEventListener('change', () => {
       const id = chk.dataset.mod as ModifierId;
-      const next = cloneProject(project);
+      const next = cloneProject(workingProject);
       next.chain.modifiers = next.chain.modifiers.map((m) =>
         m.id === id ? { ...m, enabled: chk.checked } : m
       );
       next.baked = false;
+      workingProject = cloneProject(next);
       callbacks.onProjectChange(next);
     });
   });
 
   container.querySelectorAll<HTMLInputElement>('.sl-mod').forEach((sl) => {
+    const id = sl.dataset.mod as ModifierId;
     sl.addEventListener('input', () => {
-      const id = sl.dataset.mod as ModifierId;
-      const next = cloneProject(project);
+      if (!modStartSnapshots.has(id)) {
+        modStartSnapshots.set(id, cloneProject(workingProject));
+      }
+      const next = cloneProject(workingProject);
       next.chain.modifiers = next.chain.modifiers.map((m) =>
         m.id === id ? { ...m, amount: Number(sl.value), enabled: true } : m
       );
       next.baked = false;
-      callbacks.onProjectChange(next);
+      workingProject = cloneProject(next);
+
+      const card = sl.closest('.mod-card');
+      card?.classList.add('enabled');
+      const chk = card?.querySelector<HTMLInputElement>('.chk-mod');
+      if (chk) chk.checked = true;
+
+      callbacks.onProjectChange(next, { recompileAudioOnly: true, recordHistory: false });
+    });
+
+    sl.addEventListener('change', () => {
+      const historyBase = modStartSnapshots.get(id) ?? cloneProject(workingProject);
+      modStartSnapshots.delete(id);
+      const next = cloneProject(workingProject);
+      next.chain.modifiers = next.chain.modifiers.map((m) =>
+        m.id === id ? { ...m, amount: Number(sl.value), enabled: true } : m
+      );
+      next.baked = false;
+      workingProject = cloneProject(next);
+      callbacks.onProjectChange(next, {
+        recompileAudioOnly: false,
+        recordHistory: true,
+        historyBase,
+      });
     });
   });
 
