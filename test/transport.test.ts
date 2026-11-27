@@ -83,4 +83,32 @@ describe('MotifTransport preview preservation', () => {
 
     transport.stop();
   });
+
+  it('plays chords with piano by default and switches to guitar when requested', () => {
+    const mock = createMockAudio();
+    const song = compileSong(createDefaultProject());
+    const transport = new MotifTransport(mock.engine, song);
+    const mutes = { melody: true, chords: false, bass: true, drums: true };
+
+    transport.updateSong(song, 120, 'piano', mutes);
+    transport.start(true);
+    mock.advance(0.05);
+    vi.advanceTimersByTime(50);
+
+    expect(mock.engine.playPiano).toHaveBeenCalled();
+    expect(mock.engine.playGuitar).not.toHaveBeenCalled();
+    transport.stop();
+
+    vi.mocked(mock.engine.playPiano).mockClear();
+    vi.mocked(mock.engine.playGuitar).mockClear();
+
+    transport.updateSong(song, 120, 'piano', mutes, 'guitar');
+    transport.start(true);
+    mock.advance(0.05);
+    vi.advanceTimersByTime(50);
+
+    expect(mock.engine.playGuitar).toHaveBeenCalled();
+    expect(mock.engine.playPiano).not.toHaveBeenCalled();
+    transport.stop();
+  });
 });

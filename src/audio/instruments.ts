@@ -1,4 +1,4 @@
-import type { DrumKind } from '../core/model';
+import type { ChordInstrument, DrumKind } from '../core/model';
 
 export function midiToFreq(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
@@ -327,14 +327,14 @@ export class MotifAudioEngine {
     hat.stop(t0 + 0.065);
   }
 
-  public auditionChord(midis: number[], instrument: 'guitar' | 'piano' = 'guitar'): void {
+  public auditionChord(midis: number[], instrument: ChordInstrument = 'piano'): void {
     const t0 = this.currentTime + 0.01;
     midis.forEach((m, idx) => {
       const offset = idx * 0.022;
       if (instrument === 'guitar') {
         this.playGuitar(m, t0 + offset, 1.1, 0.72, 0.25);
       } else {
-        this.playPiano(m, t0 + offset * 0.5, 1.1, 0.68, 0.25);
+        this.playPiano(m, t0 + offset * 0.4, 1.1, 0.65, 0.24);
       }
     });
   }

@@ -67,6 +67,22 @@ button, select, input {
   flex-wrap: wrap;
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chord-view-switch {
+  display: inline-flex;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 3px;
+}
+
 .topbar-tools {
   width: 100%;
   gap: 6px;

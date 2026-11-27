@@ -12,5 +12,5 @@
 
 - `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 20강 기초 원리·클래식 해부 커리큘럼(`basics.json`), 20강 실전 미션 커리큘럼(`lessons.json`).
 - `src/core/`: DOM·오디오 비의존 순수 로직(`theory.ts`, `model.ts`, `compiler.ts`, `analyzer.ts`, `history.ts`, `basics.ts`, `lesson.ts`, `midi.ts`).
-- `src/audio/`: WebAudio 합성기(`instruments.ts`: 룸 리버브·컴프레서·Karplus-Strong 기타·FM 피아노·베이스·드럼)와 원본 곡 보존형 룩어헤드 스케줄러(`transport.ts`).
-- `src/ui/`: 기초 코스 목차 및 집중 학습 뷰(`basicsView.ts`), 실전 미션 목차 및 배너(`lessonPanel.ts`), 기타 코드 다이어그램 스트립(`guitarStrip.ts`), L1/L2/L3 및 집중 피아노롤(`layers.ts`), 이론 코치 패널(`coachPanel.ts`).
+- `src/audio/`: WebAudio 합성기(`instruments.ts`: 룸 리버브·컴프레서·Karplus-Strong 기타·FM 피아노·베이스·드럼)와 건반 기본·기타 전환형 화음 반주 룩어헤드 스케줄러(`transport.ts`).
+- `src/ui/`: 기초 코스 목차 및 집중 학습 뷰(`basicsView.ts`), 실전 미션 목차 및 배너(`lessonPanel.ts`), 피아노 건반(기본)/기타 운지표 전환형 코드 스트립(`guitarStrip.ts`), L1/L2/L3 및 집중 피아노롤(`layers.ts`), 이론 코치 패널(`coachPanel.ts`).

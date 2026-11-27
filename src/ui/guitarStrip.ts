@@ -1,5 +1,60 @@
+import type { ChordInstrument } from '../core/model';
 import type { ResolvedChord } from '../core/theory';
 import { getGuitarDiagram } from '../core/theory';
+
+const PIANO_WHITE_KEYS: Array<{ pc: number; x: number }> = [
+  { pc: 0, x: 0 },
+  { pc: 2, x: 14 },
+  { pc: 4, x: 28 },
+  { pc: 5, x: 42 },
+  { pc: 7, x: 56 },
+  { pc: 9, x: 70 },
+  { pc: 11, x: 84 },
+];
+
+const PIANO_BLACK_KEYS: Array<{ pc: number; x: number }> = [
+  { pc: 1, x: 9.5 },
+  { pc: 3, x: 23.5 },
+  { pc: 6, x: 51.5 },
+  { pc: 8, x: 65.5 },
+  { pc: 10, x: 79.5 },
+];
+
+export function buildPianoChordSvg(chord: ResolvedChord): string {
+  const pcs = new Set(chord.pitchClasses);
+  const w = 98;
+  const h = 58;
+
+  let whiteRects = '';
+  for (const k of PIANO_WHITE_KEYS) {
+    const active = pcs.has(k.pc);
+    const isRoot = k.pc === chord.rootPc;
+    const fill = isRoot ? '#34d399' : active ? '#38bdf8' : '#dbe4f0';
+    const dataAttr = active ? ` data-pc="${k.pc}"` : '';
+    const dot = active
+      ? `<circle cx="${k.x + 7}" cy="46" r="2.6" fill="#08111f"/>`
+      : '';
+    whiteRects += `<rect x="${k.x + 0.5}" y="2" width="13" height="53" rx="2" fill="${fill}" stroke="#1e293b" stroke-width="1"${dataAttr}/>${dot}`;
+  }
+
+  let blackRects = '';
+  for (const k of PIANO_BLACK_KEYS) {
+    const active = pcs.has(k.pc);
+    const isRoot = k.pc === chord.rootPc;
+    const fill = isRoot ? '#34d399' : active ? '#38bdf8' : '#162032';
+    const dataAttr = active ? ` data-pc="${k.pc}"` : '';
+    const dot = active
+      ? `<circle cx="${k.x + 4.5}" cy="26" r="2.1" fill="#08111f"/>`
+      : '';
+    blackRects += `<rect x="${k.x}" y="2" width="9" height="33" rx="1.5" fill="${fill}" stroke="#0b1220" stroke-width="1"${dataAttr}/>${dot}`;
+  }
+
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="${chord.symbol} 피아노 건반 코드">${whiteRects}${blackRects}</svg>`;
+}
+
+export function buildChordVisualSvg(chord: ResolvedChord, mode: ChordInstrument = 'piano'): string {
+  return mode === 'guitar' ? buildChordDiagramSvg(chord) : buildPianoChordSvg(chord);
+}
 
 export function buildChordDiagramSvg(chord: ResolvedChord): string {
   const diag = getGuitarDiagram(chord);
@@ -49,7 +104,8 @@ export function renderGuitarStrip(
   container: HTMLElement,
   chords: ResolvedChord[],
   activeBar: number,
-  onAuditionChord: (chord: ResolvedChord) => void
+  onAuditionChord: (chord: ResolvedChord) => void,
+  chordView: ChordInstrument = 'piano'
 ): void {
   container.innerHTML = chords
     .map((ch, idx) => {
@@ -62,7 +118,7 @@ export function renderGuitarStrip(
             <span class="chord-solfege">음: ${ch.koreanRoot}</span>
             <span class="chord-degree-badge">${ch.degree}</span>
           </div>
-          ${buildChordDiagramSvg(ch)}
+          ${buildChordVisualSvg(ch, chordView)}
         </button>
       `;
     })

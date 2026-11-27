@@ -7,7 +7,7 @@ import {
   getBasicUnits,
 } from '../core/basics';
 import type { CompiledSong } from '../core/compiler';
-import { PRESETS, type SongProject, cloneProject } from '../core/model';
+import { PRESETS, type ChordInstrument, type SongProject, cloneProject } from '../core/model';
 import {
   type DegreeSymbol,
   KOREAN_SOLFEGE,
@@ -17,7 +17,7 @@ import {
   resolveChord,
   wrapPc,
 } from '../core/theory';
-import { buildChordDiagramSvg } from './guitarStrip';
+import { buildChordVisualSvg } from './guitarStrip';
 import { renderFocusedPianoRoll } from './layers';
 
 export interface BasicsMapCallbacks {
@@ -34,6 +34,7 @@ export interface BasicsViewState {
   canUndo: boolean;
   selectedDuration: number;
   selectedPickBar: number;
+  chordView: ChordInstrument;
 }
 
 export interface BasicsViewCallbacks {
@@ -175,7 +176,8 @@ function renderChordTonePickBody(
   project: SongProject,
   compiled: CompiledSong,
   targetBars: number[],
-  selectedPickBar: number
+  selectedPickBar: number,
+  chordView: ChordInstrument
 ): string {
   const safeSelectedBar = targetBars.includes(selectedPickBar) ? selectedPickBar : targetBars[0] ?? 0;
 
@@ -201,7 +203,7 @@ function renderChordTonePickBody(
             <span class="pick-tones">구성음: ${tones}</span>
             <span class="pick-current ${statusCls}">현재 음: ${noteLabel} · ${statusText}</span>
           </div>
-          ${buildChordDiagramSvg(chord)}
+          ${buildChordVisualSvg(chord, chordView)}
         </button>
       `;
     })
@@ -257,7 +259,7 @@ function renderChordTonePickBody(
   `;
 }
 
-function renderChordSwapBody(compiled: CompiledSong): string {
+function renderChordSwapBody(compiled: CompiledSong, chordView: ChordInstrument): string {
   const cards = compiled.resolvedChords
     .map((chord, barIdx) => {
       const tones = chord.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
@@ -273,7 +275,7 @@ function renderChordSwapBody(compiled: CompiledSong): string {
               <div class="chord-symbol">${chord.symbol}</div>
               <div class="pick-tones">구성음: ${tones}</div>
             </div>
-            ${buildChordDiagramSvg(chord)}
+            ${buildChordVisualSvg(chord, chordView)}
           </div>
           <div class="swap-btn-grid">${buttons}</div>
         </div>
@@ -390,9 +392,9 @@ export function renderBasicsView(
 
   let workspaceHtml = '';
   if (lesson.workspaceKind === 'chord_tone_pick') {
-    workspaceHtml = renderChordTonePickBody(project, compiled, targetPickBars, activePickBar);
+    workspaceHtml = renderChordTonePickBody(project, compiled, targetPickBars, activePickBar, state.chordView);
   } else if (lesson.workspaceKind === 'chord_swap') {
-    workspaceHtml = renderChordSwapBody(compiled);
+    workspaceHtml = renderChordSwapBody(compiled, state.chordView);
   } else if (lesson.workspaceKind === 'classic_arrange') {
     workspaceHtml = renderArrangeControlsBody(project);
   } else {

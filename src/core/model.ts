@@ -5,6 +5,8 @@ export type EditorLayer = 'L1' | 'L2' | 'L3';
 
 export type MelodyInstrument = 'piano' | 'guitar';
 
+export type ChordInstrument = 'piano' | 'guitar';
+
 export type ModifierId =
   | 'modal_borrow'
   | 'motif_repeat'

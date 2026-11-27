@@ -20,6 +20,7 @@ import { ProjectHistory } from './core/history';
 import { LESSONS, createLessonProject, evaluateLesson, getLessonById } from './core/lesson';
 import { exportToMidi } from './core/midi';
 import {
+  type ChordInstrument,
   type MelodyInstrument,
   type ModifierId,
   PRESETS,
@@ -38,6 +39,7 @@ const STORAGE_KEY = 'motif_project_v1';
 const LESSON_STORAGE_KEY = 'motif_lessons_v1';
 const BASICS_STORAGE_KEY = 'motif_basics_v1';
 const MODE_STORAGE_KEY = 'motif_mode_v1';
+const CHORD_VIEW_STORAGE_KEY = 'motif_chord_view_v1';
 
 type AppMode = 'basics' | 'lesson' | 'free';
 
@@ -75,6 +77,24 @@ function loadInitialMode(): AppMode {
 function saveMode(mode: AppMode): void {
   try {
     localStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    // 저장 불가 환경은 건너뛴다.
+  }
+}
+
+function loadInitialChordView(): ChordInstrument {
+  try {
+    const raw = localStorage.getItem(CHORD_VIEW_STORAGE_KEY);
+    if (raw === 'piano' || raw === 'guitar') return raw;
+  } catch {
+    // 저장 불가 환경은 건반 기본값으로 시작한다.
+  }
+  return 'piano';
+}
+
+function saveChordView(view: ChordInstrument): void {
+  try {
+    localStorage.setItem(CHORD_VIEW_STORAGE_KEY, view);
   } catch {
     // 저장 불가 환경은 건너뛴다.
   }
@@ -152,6 +172,7 @@ function init(): void {
   if (!root) return;
 
   let appMode: AppMode = loadInitialMode();
+  let chordView: ChordInstrument = loadInitialChordView();
   let basicsScreen: 'map' | 'lesson' = 'map';
   let lessonScreen: 'map' | 'lesson' = 'map';
   let freeProject = loadInitialProject();
@@ -230,7 +251,7 @@ function init(): void {
     activeStep = -1;
     project = cloneProject(target);
     compiled = compileSong(project);
-    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
     renderAll();
   }
 
@@ -342,7 +363,7 @@ function init(): void {
       freeProject = cloneProject(project);
       saveProject(freeProject);
     }
-    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
     if (!recompileAudioOnly) {
       renderAll();
     } else if (appMode === 'lesson') {
@@ -372,7 +393,22 @@ function init(): void {
     }
   }
 
+  function setChordView(nextView: ChordInstrument): void {
+    if (nextView === chordView) return;
+    chordView = nextView;
+    saveChordView(chordView);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+    renderAll();
+  }
+
   function renderTopControls(): void {
+    const chordSwitchHtml = `
+      <div class="chord-view-switch" title="코드 그림 및 화음 반주 악기 전환">
+        <button class="mode-pill${chordView === 'piano' ? ' active' : ''}" data-chord-view="piano" type="button">건반</button>
+        <button class="mode-pill${chordView === 'guitar' ? ' active' : ''}" data-chord-view="guitar" type="button">기타</button>
+      </div>
+    `;
+
     const modeSwitchHtml = `
       <div class="mode-switch">
         <button class="mode-pill${appMode === 'basics' ? ' active' : ''}" data-app-mode="basics" type="button">기초 입문 (${basicsProgress.completedIds.length}/${BASIC_LESSONS.length})</button>
@@ -380,6 +416,8 @@ function init(): void {
         <button class="mode-pill${appMode === 'free' ? ' active' : ''}" data-app-mode="free" type="button">자유 스케치</button>
       </div>
     `;
+
+    const topbarRightHtml = `<div class="topbar-right">${chordSwitchHtml}${modeSwitchHtml}</div>`;
 
     if (appMode === 'basics' || (appMode === 'lesson' && lessonScreen === 'map')) {
       const subText =
@@ -395,10 +433,21 @@ function init(): void {
               <div class="brand-sub">${subText}</div>
             </div>
           </div>
-          ${modeSwitchHtml}
+          ${topbarRightHtml}
         </div>
       `;
-      topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
+      topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          setChordView(btn.dataset.chordView as ChordInstrument);
+        });
+      });
+      topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setChordView(btn.dataset.chordView as ChordInstrument);
+      });
+    });
+
+    topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
         btn.addEventListener('click', () => {
           switchMode(btn.dataset.appMode as AppMode);
         });
@@ -420,7 +469,7 @@ function init(): void {
             <div class="brand-sub">L1 블록 → L2 변형 체인 → L3 음표로 배우는 4/8마디 작곡</div>
           </div>
         </div>
-        ${modeSwitchHtml}
+        ${topbarRightHtml}
       </div>
       <div class="controls-row topbar-tools">
         <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
@@ -464,6 +513,12 @@ function init(): void {
       </div>
     `;
 
+    topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setChordView(btn.dataset.chordView as ChordInstrument);
+      });
+    });
+
     topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
       btn.addEventListener('click', () => {
         switchMode(btn.dataset.appMode as AppMode);
@@ -503,7 +558,7 @@ function init(): void {
         freeProject = cloneProject(project);
         saveProject(freeProject);
       }
-      transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
+      transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
     });
 
     topbarEl.querySelector('#sel-inst')?.addEventListener('change', (e) => {
@@ -516,7 +571,7 @@ function init(): void {
       btn.addEventListener('click', () => {
         const key = btn.dataset.mute as keyof TrackMuteState;
         mutes[key] = !mutes[key];
-        transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes);
+        transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
         renderTopControls();
       });
     });
@@ -551,15 +606,21 @@ function init(): void {
   }
 
   function auditionChordWithNote(voicingMidi: number[], midi: number): void {
-    audio.auditionChord(voicingMidi, 'guitar');
+    audio.auditionChord(voicingMidi, chordView);
     audio.playPiano(midi, audio.currentTime + 0.04, 0.9, 0.85, 0.25);
   }
 
   function renderDynamicParts(): void {
     const activeBar = activeStep >= 0 ? Math.floor(activeStep / 16) : -1;
-    renderGuitarStrip(stripEl, compiled.resolvedChords, activeBar, (chord) => {
-      audio.auditionChord(chord.voicingMidi, 'guitar');
-    });
+    renderGuitarStrip(
+      stripEl,
+      compiled.resolvedChords,
+      activeBar,
+      (chord) => {
+        audio.auditionChord(chord.voicingMidi, chordView);
+      },
+      chordView
+    );
 
     renderLayerEditor(mainEl, project, compiled, activeStep, {
       selectedDuration,
@@ -571,7 +632,13 @@ function init(): void {
       onAuditionPitch: auditionPitch,
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId);
-        transport.playOncePreview(after ? diff.after : diff.before, project.bpm, project.melodyInstrument, mutes);
+        transport.playOncePreview(
+          after ? diff.after : diff.before,
+          project.bpm,
+          project.melodyInstrument,
+          mutes,
+          chordView
+        );
         renderTopControls();
       },
     });
@@ -670,6 +737,7 @@ function init(): void {
         canUndo: history.canUndo(),
         selectedDuration,
         selectedPickBar,
+        chordView,
       },
       {
         onBackToMap: () => {
@@ -689,12 +757,18 @@ function init(): void {
         },
         onPlayDemo: (demo: CompareDemo) => {
           const demoCompiled = compileCompareDemo(demo, project.keyRoot);
-          transport.playOncePreview(demoCompiled, demo.bpm, 'piano', {
-            melody: false,
-            chords: false,
-            bass: false,
-            drums: false,
-          });
+          transport.playOncePreview(
+            demoCompiled,
+            demo.bpm,
+            'piano',
+            {
+              melody: false,
+              chords: false,
+              bass: false,
+              drums: false,
+            },
+            chordView
+          );
           updateBasicsPlayButton(basicsRootEl, true);
         },
         onTogglePlay: togglePlayback,
@@ -715,13 +789,13 @@ function init(): void {
         onSelectPickBar: (barIdx) => {
           selectedPickBar = barIdx;
           const chord = compiled.resolvedChords[barIdx];
-          if (chord) audio.auditionChord(chord.voicingMidi, 'guitar');
+          if (chord) audio.auditionChord(chord.voicingMidi, chordView);
           renderBasicsMode();
         },
         onProjectChange: (next) => updateState(next),
         onAuditionPitch: auditionPitch,
         onAuditionChordWithNote: auditionChordWithNote,
-        onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, 'guitar'),
+        onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, chordView),
         onGoToMissions: () => switchMode('lesson'),
         onOpenInFreeSketch: () => openProjectInFreeSketch(project),
       }
@@ -768,7 +842,7 @@ function init(): void {
       onPreviewIssueFix: (issue) => {
         const previewProj = issue.applyFix(project);
         const previewCompiled = compileSong(previewProj);
-        transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes);
+        transport.playOncePreview(previewCompiled, project.bpm, project.melodyInstrument, mutes, chordView);
         renderTopControls();
       },
       onApplyIssueFix: (issue) => {

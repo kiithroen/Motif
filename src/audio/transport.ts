@@ -1,5 +1,5 @@
 import type { CompiledSong } from '../core/compiler';
-import type { MelodyInstrument } from '../core/model';
+import type { ChordInstrument, MelodyInstrument } from '../core/model';
 import { MotifAudioEngine } from './instruments';
 
 export interface TrackMuteState {
@@ -20,6 +20,7 @@ export class MotifTransport {
   private previewSong: CompiledSong | null = null;
   private bpm = 96;
   private melodyInstrument: MelodyInstrument = 'piano';
+  private chordInstrument: ChordInstrument = 'piano';
   private mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
   private callbacks: TransportCallbacks;
 
@@ -47,10 +48,17 @@ export class MotifTransport {
     return this.playing;
   }
 
-  public updateSong(compiled: CompiledSong, bpm: number, melodyInstrument: MelodyInstrument, mutes: TrackMuteState): void {
+  public updateSong(
+    compiled: CompiledSong,
+    bpm: number,
+    melodyInstrument: MelodyInstrument,
+    mutes: TrackMuteState,
+    chordInstrument: ChordInstrument = this.chordInstrument
+  ): void {
     this.mainSong = compiled;
     this.bpm = Math.max(45, Math.min(200, bpm));
     this.melodyInstrument = melodyInstrument;
+    this.chordInstrument = chordInstrument;
     this.mutes = { ...mutes };
     if (this.currentStep >= this.activeSong.totalSteps) {
       this.currentStep = 0;
@@ -102,11 +110,18 @@ export class MotifTransport {
     }
   }
 
-  public playOncePreview(song: CompiledSong, bpm: number, melodyInstrument: MelodyInstrument, mutes: TrackMuteState): void {
+  public playOncePreview(
+    song: CompiledSong,
+    bpm: number,
+    melodyInstrument: MelodyInstrument,
+    mutes: TrackMuteState,
+    chordInstrument: ChordInstrument = this.chordInstrument
+  ): void {
     this.stop();
     this.previewSong = song;
     this.bpm = Math.max(45, Math.min(200, bpm));
     this.melodyInstrument = melodyInstrument;
+    this.chordInstrument = chordInstrument;
     this.mutes = { ...mutes };
     this.beginPlayback(false);
   }
@@ -160,7 +175,11 @@ export class MotifTransport {
       let chordIdx = 0;
       for (const c of song.chords) {
         if (c.step === step) {
-          this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, c.velocity * 0.72, 0.22);
+          if (this.chordInstrument === 'guitar') {
+            this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, c.velocity * 0.72, 0.22);
+          } else {
+            this.audio.playPiano(c.midi, when + chordIdx * 0.006, c.duration * stepDur, c.velocity * 0.56, 0.2);
+          }
           chordIdx++;
         }
       }
