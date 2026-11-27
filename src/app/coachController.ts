@@ -23,7 +23,8 @@ export interface CoachControllerDeps {
   getChordView: () => ChordInstrument;
   isBasicsMode: () => boolean;
   playOncePreview: (compiled: CompiledSong) => void;
-  onApplyProject: (next: SongProject) => void;
+  onPreviewVisualDiff?: (previewCompiled: CompiledSong, label: string) => void;
+  onApplyProject: (next: SongProject, changeLabel?: string) => void;
   onRenderDynamicParts: () => void;
   onRenderTopControls: () => void;
   onRenderCoach: (report?: DiagnosisReport) => void;
@@ -234,13 +235,15 @@ export class CoachController {
         const previewProj = issue.applyFix(project);
         const previewCompiled = compileSong(previewProj, chordView);
         this.uiState.activePreview = null;
+        this.deps.onPreviewVisualDiff?.(previewCompiled, `코치 미리보기: ${issue.title}`);
         this.deps.playOncePreview(previewCompiled);
         this.deps.onRenderTopControls();
       },
       onApplyIssueFix: (issue) => {
-        const fixed = issue.applyFix(this.deps.getProject());
-        fixed.activeLayer = 'L3';
-        this.deps.onApplyProject(fixed);
+        const current = this.deps.getProject();
+        const fixed = issue.applyFix(current);
+        fixed.activeLayer = current.activeLayer;
+        this.deps.onApplyProject(fixed, `코치 적용: ${issue.title}`);
       },
       onToggleGeminiSettings: () => {
         this.uiState.settingsOpen = !this.uiState.settingsOpen;

@@ -37,6 +37,12 @@ import {
   normalizeLoopRange,
   selectLoopBarRange,
 } from '../core/playbackControl';
+import type { SongVisualDiff } from '../core/songDiff';
+import {
+  renderMiniPianoRollHtml,
+  updateMiniPianoRollPlayhead,
+  wireMiniPianoRollEvents,
+} from './miniPianoRoll';
 import {
   type ChordExtension,
   type ChordInversion,
@@ -55,6 +61,7 @@ export interface ProjectChangeOptions {
   recompileAudioOnly?: boolean;
   recordHistory?: boolean;
   historyBase?: SongProject;
+  changeLabel?: string;
 }
 
 export interface LayerCallbacks {
@@ -64,6 +71,7 @@ export interface LayerCallbacks {
   preserveBakedOnChordChange?: boolean;
   coachCompare?: CoachVisualDiff | null;
   coachCompareActive?: boolean;
+  visualDiff?: SongVisualDiff | null;
   onSelectDuration: (steps: number) => void;
   onTogglePreserveBaked?: (preserve: boolean) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
@@ -73,6 +81,7 @@ export interface LayerCallbacks {
   onSeekBar?: (barIdx: number) => void;
   onLoopRangeChange?: (range: LoopBarRange | null) => void;
   onDismissCoachCompare?: () => void;
+  onClearVisualDiff?: () => void;
 }
 
 function escapeHtml(text: string): string {
@@ -103,6 +112,7 @@ let containerZoomMap = new WeakMap<HTMLElement, string>();
 let containerL3TrackMap = new WeakMap<HTMLElement, L3EditTrack>();
 type L2SectionTab = 'all' | 'A' | 'B';
 let containerSectionTabMap = new WeakMap<HTMLElement, L2SectionTab>();
+const containerMiniPrCollapsedMap = new WeakMap<HTMLElement, boolean>();
 const activeKeyHandlers = new Map<HTMLElement, (e: KeyboardEvent) => void>();
 const handledKeyEvents = new WeakSet<KeyboardEvent>();
 let sharedClipboard: NoteClipboard | null = null;
@@ -249,6 +259,7 @@ export function computeFollowScrollLeft(
 }
 
 export function updatePianoRollPlayhead(container: HTMLElement, activeStep: number, totalSteps: number): void {
+  updateMiniPianoRollPlayhead(container, activeStep, totalSteps);
   const visible = activeStep >= 0 && activeStep < totalSteps;
   const activeBar = visible ? Math.floor(activeStep / 16) : -1;
   container.querySelectorAll<HTMLElement>('.pr-bar-cell[data-bar]').forEach((cell) => {
@@ -368,11 +379,43 @@ export function renderLayerEditor(
     </div>
   `;
 
+  const miniPrHtml =
+    layer === 'L1' || layer === 'L2'
+      ? renderMiniPianoRollHtml(project, compiled, activeStep, {
+          collapsed: containerMiniPrCollapsedMap.get(container) ?? false,
+          loopRange: callbacks.loopRange,
+          visualDiff: callbacks.visualDiff,
+          coachCompare: callbacks.coachCompare,
+          coachCompareActive: callbacks.coachCompareActive,
+        })
+      : '';
+
+  const wireMiniPr = () => {
+    wireMiniPianoRollEvents(container, {
+      onToggleCollapse: () => {
+        const nextCollapsed = !(containerMiniPrCollapsedMap.get(container) ?? false);
+        containerMiniPrCollapsedMap.set(container, nextCollapsed);
+        renderLayerEditor(container, project, compiled, activeStep, callbacks);
+      },
+      onClearDiff: () => callbacks.onClearVisualDiff?.(),
+      onOpenL3: () => {
+        const next = cloneProject(project);
+        next.activeLayer = 'L3';
+        if (!(next.baked && next.bakedMelody.length > 0)) {
+          next.baked = false;
+        }
+        callbacks.onProjectChange(next);
+      },
+      onSeekBar: (bar) => callbacks.onSeekBar?.(bar),
+    });
+  };
+
   if (layer === 'L1') {
     containerSelectionMap.delete(container);
     detachContainerKeyHandler(container);
-    container.innerHTML = tabsHtml + renderL1Body(project);
+    container.innerHTML = tabsHtml + miniPrHtml + renderL1Body(project);
     wireTabs(container, project, callbacks);
+    wireMiniPr();
     wireL1Events(container, project, callbacks);
     return;
   }
@@ -385,8 +428,10 @@ export function renderLayerEditor(
       project.bars === 16 ? (containerSectionTabMap.get(container) ?? 'all') : 'all';
     container.innerHTML =
       tabsHtml +
+      miniPrHtml +
       renderL2Body(project, compiled, preserveBakedOnChordChange, chordView, sectionTab, callbacks.loopRange);
     wireTabs(container, project, callbacks);
+    wireMiniPr();
     wireL2Events(container, project, callbacks, preserveBakedOnChordChange, () =>
       renderLayerEditor(container, project, compiled, activeStep, callbacks)
     );
@@ -405,6 +450,7 @@ export function renderLayerEditor(
     loopRange: callbacks.loopRange,
     coachCompare: callbacks.coachCompare,
     coachCompareActive: callbacks.coachCompareActive,
+    visualDiff: callbacks.visualDiff,
     selectedIds,
     toolMode,
     metrics,
@@ -512,7 +558,8 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
       next.blocks.progressionId = btn.dataset.prog!;
       next.baked = false;
       workingProject = cloneProject(next);
-      callbacks.onProjectChange(next);
+      const progName = PRESETS.progressions.find((p) => p.id === next.blocks.progressionId)?.nameKo;
+      callbacks.onProjectChange(next, { changeLabel: progName ? `코드 진행: ${progName}` : '코드 진행 변경' });
     });
   });
 
@@ -524,7 +571,7 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
       next.blocks.grooveId = gId;
       if (preset) next.bpm = preset.defaultBpm;
       workingProject = cloneProject(next);
-      callbacks.onProjectChange(next);
+      callbacks.onProjectChange(next, { changeLabel: preset ? `그루브: ${preset.nameKo}` : '그루브 변경' });
     });
   });
 
@@ -534,7 +581,8 @@ function wireL1Events(container: HTMLElement, project: SongProject, callbacks: L
       next.blocks.contourId = btn.dataset.contour!;
       next.baked = false;
       workingProject = cloneProject(next);
-      callbacks.onProjectChange(next);
+      const contourName = PRESETS.contours.find((c) => c.id === next.blocks.contourId)?.nameKo;
+      callbacks.onProjectChange(next, { changeLabel: contourName ? `멜로디 윤곽: ${contourName}` : '윤곽 변경' });
     });
   });
 
@@ -909,7 +957,10 @@ function wireL2Events(
       );
       next.baked = false;
       workingProject = cloneProject(next);
-      callbacks.onProjectChange(next);
+      const modName = PRESETS.modifiers.find((m) => m.id === id)?.nameKo ?? id;
+      callbacks.onProjectChange(next, {
+        changeLabel: `${modName} ${chk.checked ? '켜짐' : '꺼짐'}`,
+      });
     });
   });
 
@@ -1151,6 +1202,7 @@ function renderL3Body(
     loopRange?: LoopBarRange | null;
     coachCompare?: CoachVisualDiff | null;
     coachCompareActive?: boolean;
+    visualDiff?: SongVisualDiff | null;
     selectedIds?: ReadonlySet<string>;
     toolMode?: PianoRollToolMode;
     metrics?: PianoRollMetrics;
@@ -1347,6 +1399,18 @@ function renderL3Body(
       `
     : '';
 
+  const visualDiff = opts.visualDiff ?? null;
+  const hasVisualDiff = Boolean(visualDiff?.hasAnyChange);
+  const visualDiffBadgeHtml =
+    hasVisualDiff && visualDiff
+      ? `
+        <span class="pr-diff-badge${visualDiff.mode === 'preview' ? ' is-preview' : ''}">
+          <span>${visualDiff.label ? `${escapeHtml(visualDiff.label)}: ` : ''}${escapeHtml(visualDiff.summaryText)}</span>
+          <button class="btn btn-chip" id="btn-hide-visual-diff" type="button">${visualDiff.mode === 'preview' ? '미리보기 닫기' : '비교 숨기기'}</button>
+        </span>
+      `
+      : '';
+
   let coachBarTints = '';
   if (hasCoachDiff && coachCompare) {
     for (const c of coachCompare.changedChordBars) {
@@ -1379,8 +1443,11 @@ function renderL3Body(
             : noteRoleColor(n.role ?? 'passing');
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
     const isSelected = Boolean(opts.selectedIds?.has(n.id));
+    const isDiffAdded = track === 'melody' && Boolean(visualDiff?.addedMelodyIds.has(n.id));
+    const isDiffChanged = track === 'melody' && Boolean(visualDiff?.changedMelodyIds.has(n.id));
+    const diffClass = isDiffAdded ? ' is-diff-added' : isDiffChanged ? ' is-diff-changed' : '';
     noteRects += `
-      <g class="pr-note${isSelected ? ' selected' : ''}" data-note-id="${n.id}">
+      <g class="pr-note${isSelected ? ' selected' : ''}${diffClass}" data-note-id="${n.id}">
         <rect class="pr-note-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" stroke="#08111f" stroke-width="1"/>
         <text class="pr-note-label" x="${x + 5}" y="${y + labelOffsetY}" font-size="${labelFontSize}" font-weight="700" fill="#06121f" pointer-events="none">${label}</text>
         <rect class="pr-note-resize" data-note-id="${n.id}" x="${x + w - handleW}" y="${y}" width="${handleW}" height="${h}" rx="2"/>
@@ -1390,6 +1457,23 @@ function renderL3Body(
   }
 
   let ghostNoteRects = '';
+  if (hasVisualDiff && visualDiff && track === 'melody') {
+    for (const r of visualDiff.removedMelodyNotes) {
+      if (r.midi < minMidi || r.midi > maxMidi) continue;
+      const rowIdx = maxMidi - r.midi;
+      const x = r.step * stepW + 1;
+      const y = rowIdx * rowH + 2;
+      const w = Math.max(stepW - 2, r.duration * stepW - 2);
+      const h = rowH - 4;
+      const label = r.duration >= 2 ? koreanNoteName(r.midi) : '';
+      ghostNoteRects += `
+        <g class="pr-diff-removed-note" pointer-events="none">
+          <rect class="pr-diff-removed-body" x="${x}" y="${y}" width="${w}" height="${h}" rx="4"/>
+          <text class="pr-diff-removed-label" x="${x + 5}" y="${y + labelOffsetY}" font-size="${labelFontSize}" font-weight="700" pointer-events="none">${escapeHtml(label)}</text>
+        </g>
+      `;
+    }
+  }
   if (hasCoachDiff && coachCompare) {
     for (const g of coachCompare.ghostNotes) {
       if (g.midi < minMidi || g.midi > maxMidi) continue;
@@ -1492,6 +1576,7 @@ function renderL3Body(
           ${zoomButtons}
           ${loopBadgeHtml}
           ${coachBadgeHtml}
+          ${visualDiffBadgeHtml}
         </div>
         ${selectionBarHtml}
         <span class="kb-hint">마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 / 드래그: 다중 선택 · Shift+클릭: 선택 추가 · 드래그: 이동 (Alt: 복사) · Ctrl+C/V/X/D · 방향키: 이동</span>
@@ -1724,6 +1809,10 @@ function wireL3Events(
 
   container.querySelector('#btn-hide-coach-compare')?.addEventListener('click', () => {
     callbacks.onDismissCoachCompare?.();
+  });
+
+  container.querySelector('#btn-hide-visual-diff')?.addEventListener('click', () => {
+    callbacks.onClearVisualDiff?.();
   });
 
   container.querySelectorAll<HTMLButtonElement>('[data-loop-bar]').forEach((btn) => {

@@ -31,6 +31,7 @@ import {
   getBasicLessonById,
 } from './core/basics';
 import {
+  type CompiledSong,
   bakeProjectMelody,
   compileSong,
   previewModifierDiff,
@@ -75,12 +76,14 @@ import {
   normalizeLoopRange,
   toggleMetronomeManual,
 } from './core/playbackControl';
+import { type SongVisualDiff, computeSongDiff } from './core/songDiff';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
 import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { type ProjectChangeOptions, renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
 import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
+import { updateMiniPianoRollInPlace } from './ui/miniPianoRoll';
 import { type SongLibraryUiState, renderSongLibraryBar } from './ui/songLibraryBar';
 
 function init(): void {
@@ -110,6 +113,8 @@ function init(): void {
         ? createLessonProject(lessonProgress.activeLessonId)
         : cloneProject(getActiveSlot(songLibrary).project);
   let compiled = compileSong(project, chordView);
+  let lastVisualDiff: SongVisualDiff | null = null;
+  let previewVisualDiff: { diff: SongVisualDiff; previewCompiled: CompiledSong } | null = null;
   let activeStep = -1;
   let selectedDuration = PRESETS.defaults.noteDurationSteps;
   let preserveBakedOnChordChange = true;
@@ -232,7 +237,14 @@ function init(): void {
         chordView
       );
     },
-    onApplyProject: (next) => updateState(next),
+    onPreviewVisualDiff: (previewCompiled, label) => {
+      previewVisualDiff = {
+        diff: computeSongDiff(compiled, previewCompiled, { label, mode: 'preview' }),
+        previewCompiled,
+      };
+      renderDynamicParts();
+    },
+    onApplyProject: (next, changeLabel) => updateState(next, { changeLabel }),
     onRenderDynamicParts: () => renderDynamicParts(),
     onRenderTopControls: () => renderTopControls(),
     onRenderCoach: (report) => renderCoachSection(report),
@@ -242,6 +254,8 @@ function init(): void {
     transport.stop();
     coachController.resetForProjectLoad();
     history.clear();
+    lastVisualDiff = null;
+    previewVisualDiff = null;
     activeStep = -1;
     loopRange = null;
     transport.setLoopRange(null);
@@ -391,8 +405,19 @@ function init(): void {
       transport.setLoopRange(loopRange);
     }
 
+    const prevCompiled = compiled;
     project = resolvedNext;
     compiled = compileSong(project, chordView);
+    if (!tabOnly) {
+      const diff = computeSongDiff(prevCompiled, compiled, {
+        label: opts.changeLabel,
+        mode: 'applied',
+      });
+      if (diff.hasAnyChange) {
+        lastVisualDiff = diff;
+        previewVisualDiff = null;
+      }
+    }
     if (appMode === 'free') {
       songLibrary = updateActiveSlotProject(songLibrary, project);
       saveLibrary(songLibrary);
@@ -401,9 +426,38 @@ function init(): void {
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     if (!recompileAudioOnly) {
       renderAll();
-    } else if (appMode === 'lesson') {
-      const newlyCompleted = syncLessonBanner();
-      if (newlyCompleted) renderTopControls();
+    } else {
+      if (project.activeLayer === 'L1' || project.activeLayer === 'L2') {
+        updateMiniPianoRollInPlace(
+          mainEl,
+          project,
+          compiled,
+          activeStep,
+          {
+            loopRange,
+            visualDiff: lastVisualDiff,
+            coachCompare: coachController.getVisualCompare(),
+            coachCompareActive: coachController.isComparePreviewActive(),
+          },
+          {
+            onClearDiff: () => {
+              previewVisualDiff = null;
+              lastVisualDiff = null;
+              renderDynamicParts();
+            },
+            onOpenL3: () => {
+              const nextProj = cloneProject(project);
+              nextProj.activeLayer = 'L3';
+              updateState(nextProj);
+            },
+            onSeekBar: seekToBar,
+          }
+        );
+      }
+      if (appMode === 'lesson') {
+        const newlyCompleted = syncLessonBanner();
+        if (newlyCompleted) renderTopControls();
+      }
     }
   }
 
@@ -939,13 +993,17 @@ function init(): void {
       chordView
     );
 
-    renderLayerEditor(mainEl, project, compiled, activeStep, {
+    const displayedCompiled = previewVisualDiff ? previewVisualDiff.previewCompiled : compiled;
+    const displayedDiff = previewVisualDiff ? previewVisualDiff.diff : lastVisualDiff;
+
+    renderLayerEditor(mainEl, project, displayedCompiled, activeStep, {
       selectedDuration,
       chordView,
       loopRange,
       preserveBakedOnChordChange,
       coachCompare: coachController.getVisualCompare(),
       coachCompareActive: coachController.isComparePreviewActive(),
+      visualDiff: displayedDiff,
       onSelectDuration: (steps) => {
         selectedDuration = steps;
         renderDynamicParts();
@@ -960,8 +1018,25 @@ function init(): void {
       onSeekBar: seekToBar,
       onLoopRangeChange: setLoopRange,
       onDismissCoachCompare: () => coachController.dismissVisualCompare(),
+      onClearVisualDiff: () => {
+        previewVisualDiff = null;
+        lastVisualDiff = null;
+        renderDynamicParts();
+      },
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId, chordView);
+        if (after) {
+          const modMeta = PRESETS.modifiers.find((m) => m.id === modId);
+          previewVisualDiff = {
+            diff: computeSongDiff(compiled, diff.after, {
+              label: `변형 미리보기: ${modMeta?.nameKo ?? modId}`,
+              mode: 'preview',
+            }),
+            previewCompiled: diff.after,
+          };
+        } else {
+          previewVisualDiff = null;
+        }
         transport.playOncePreview(
           after ? diff.after : diff.before,
           project.bpm,
@@ -969,6 +1044,7 @@ function init(): void {
           mutes,
           chordView
         );
+        renderDynamicParts();
         renderTopControls();
       },
     });

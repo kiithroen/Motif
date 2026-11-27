@@ -2870,3 +2870,201 @@ input[type='range'] {
     min-width: 0;
   }
 }
+
+/* ===== Live Mini Piano Roll & Visual Diff ===== */
+
+.mini-pr-card {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.mini-pr-card.is-collapsed {
+  padding-bottom: 10px;
+}
+
+.mini-pr-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-pr-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mini-pr-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.mini-pr-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mini-pr-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-pr-diff-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: var(--text);
+}
+
+.mini-pr-diff-bar.is-preview {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+.mini-pr-diff-text {
+  font-weight: 600;
+}
+
+.mini-pr-diff-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mini-pr-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mini-pr-leg i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.mini-pr-leg i.dot-added {
+  background: #fbbf24;
+  border: 1px solid #fef08a;
+}
+
+.mini-pr-leg i.dot-removed {
+  background: rgba(251, 113, 133, 0.25);
+  border: 1px dashed #fb7185;
+}
+
+.mini-pr-leg i.dot-ghost {
+  background: rgba(167, 139, 250, 0.35);
+  border: 1px dashed #c4b5fd;
+}
+
+.mini-pr-canvas-wrap {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: #070d18;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.mini-pr-svg {
+  display: block;
+  width: 100%;
+  height: 136px;
+}
+
+.mini-pr-bar-bg.active-bar {
+  stroke: rgba(56, 189, 248, 0.55);
+  stroke-width: 1;
+}
+
+.mini-pr-note {
+  fill: #38bdf8;
+}
+
+.mini-pr-note.is-clash {
+  fill: #fb7185;
+}
+
+.mini-pr-note.is-added {
+  fill: #34d399;
+  stroke: #ecfdf5;
+  stroke-width: 0.9;
+}
+
+.mini-pr-note.is-changed {
+  fill: #fbbf24;
+  stroke: #fef9c3;
+  stroke-width: 0.9;
+}
+
+.mini-pr-note-removed {
+  fill: rgba(251, 113, 133, 0.16);
+  stroke: #fb7185;
+  stroke-width: 1;
+  stroke-dasharray: 2.5 1.8;
+}
+
+.mini-pr-note-ghost {
+  fill: rgba(167, 139, 250, 0.22);
+  stroke: #c4b5fd;
+  stroke-width: 1;
+  stroke-dasharray: 2.5 1.8;
+}
+
+.pr-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 8px;
+  border-radius: 7px;
+  background: rgba(52, 211, 153, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.42);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.pr-diff-badge.is-preview {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.pr-note.is-diff-added .pr-note-body {
+  stroke: #6ee7b7;
+  stroke-width: 2.2;
+}
+
+.pr-note.is-diff-changed .pr-note-body {
+  stroke: #fde047;
+  stroke-width: 2.2;
+}
+
+.pr-diff-removed-body {
+  fill: rgba(251, 113, 133, 0.16);
+  stroke: #fb7185;
+  stroke-width: 1.4;
+  stroke-dasharray: 4 2;
+}
+
+.pr-diff-removed-label {
+  fill: #fecdd3;
+}
