@@ -12,8 +12,8 @@
 
 - `src/data/*.json`: 프리셋·그루브·윤곽·변형 메타데이터·음표 길이 옵션·분석 임계값·믹서/메트로놈 재생 설정·곡 라이브러리 제한·피아노롤 터치/배율 메트릭(`presets.json`), 기타 6현 운지표(`guitarChords.json`), 14강 기초 원리·귀 훈련·클래식 해부 커리큘럼(`basics.json`), 12강 실전 미션 커리큘럼(`lessons.json`), Gemini 튜터 모델·생성 옵션·국소 비교 제한·질문 프리셋(`coach.json`).
 - `src/core/`: DOM·오디오·네트워크 비의존 순수 로직(`theory.ts`, `model.ts`, `projectLibrary.ts`, `compiler.ts`(L2 변형 Diff 캐싱 포함), `analyzer.ts`, `coachPatch.ts`, `history.ts`, `pianoRollOps.ts`, `playbackControl.ts`, `basics.ts`, `lesson.ts`, `midi.ts`).
-- `src/app/`: 브라우저 상태·저장소·단축키·튜터 제어 모듈(`storage.ts`, `shortcuts.ts`, `coachController.ts`).
+- `src/app/`: 브라우저 상태·저장소·단축키·튜터 제어 모듈(`storage.ts`(웹 Blob 다운로드 + Capacitor Filesystem/Share 네이티브 내보내기 분기), `shortcuts.ts`, `coachController.ts`).
 - `src/ai/`: 브라우저 `fetch` 기반 Gemini REST API 어댑터 및 로컬 설정 저장(`geminiCoach.ts`).
 - `src/audio/`: `smplr` 기반 실제 악기 샘플 엔진(`SplendidGrandPiano`, 나일론 기타·일렉 핑거 베이스 Soundfont, `LM-2` 드럼 머신)과 클린 폴백 신스·악기별 EQ·메트로놈 버스(`instruments.ts`), 건반 기본·기타 전환형 화음 반주 및 Seek·구간 반복·트랙 볼륨·메트로놈 룩어헤드 스케줄러(`transport.ts`).
 - `src/ui/`: 기초 코스 목차 및 집중 학습 뷰(`basicsView.ts`), 실전 미션 목차 및 배너(`lessonPanel.ts`), 자유 스케치 다중 곡 슬롯·JSON 백업 바(`songLibraryBar.ts`), 피아노 건반(기본)/기타 운지표 전환형 코드 스트립(`guitarStrip.ts`), L1/L2/L3 및 마디 Seek·구간 반복·터치 입력/선택·배율 조절 피아노롤(`layers.ts`), 로컬 이론 코치 및 읽기 전용 Gemini 이론 튜터 패널(`coachPanel.ts`).
-- PWA(`index.html`, `public/manifest.webmanifest`, `public/sw.js`, `public/icon*.png`, `public/icon.svg`): standalone 설치 및 동일 오리진 앱 셸 캐시, 폴드7 커버/펼침 듀얼 폼팩터 CSS 및 하단 엄지 독(`src/styles.css`, `src/main.ts`).
+- PWA & Android(`index.html`, `public/manifest.webmanifest`, `public/sw.js`, `capacitor.config.ts`, `android/`): standalone 설치 및 웹 전용 앱 셸 서비스 워커, Capacitor 8 Android 네이티브 래퍼(`io.motif.sketchbook`, 폴드7 폴더블 `configChanges`, 다크 테마/아이콘), 폴드7 커버/펼침 듀얼 폼팩터 CSS 및 하단 엄지 독(`src/styles.css`, `src/main.ts`).

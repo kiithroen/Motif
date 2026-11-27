@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Motif</string>
+    <string name="title_activity_main">Motif</string>
+    <string name="package_name">io.motif.sketchbook</string>
+    <string name="custom_url_scheme">io.motif.sketchbook</string>
+</resources>

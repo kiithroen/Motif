@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BASICS_STORAGE_KEY,
   CHORD_VIEW_STORAGE_KEY,
   LIBRARY_STORAGE_KEY,
   MIXER_VOLUMES_STORAGE_KEY,
   MODE_STORAGE_KEY,
+  type NativeFileExporter,
   STORAGE_KEY,
+  downloadMidi,
+  downloadTextFile,
   loadInitialChordView,
   loadInitialLibrary,
   loadInitialMode,
@@ -17,7 +20,10 @@ import {
   saveMode,
   saveProgress,
   saveTrackVolumes,
+  uint8ArrayToBase64,
+  utf8ToBase64,
 } from '../src/app/storage';
+import { compileSong } from '../src/core/compiler';
 import { PRESETS, createDefaultProject } from '../src/core/model';
 import { createDefaultTrackVolumes } from '../src/core/playbackControl';
 import { createSongSlot, getActiveSlot } from '../src/core/projectLibrary';
@@ -97,5 +103,61 @@ describe('app storage helpers', () => {
       completedIds: ['b3'],
       activeLessonId: 'b1',
     });
+  });
+
+  it('encodes UTF-8 and binary bytes to base64 and routes native exports via shareFile', async () => {
+    const sampleText = '{"name":"폴드7 스케치"}';
+    const textB64 = utf8ToBase64(sampleText);
+    const decodedText = new TextDecoder().decode(Uint8Array.from(atob(textB64), (c) => c.charCodeAt(0)));
+    expect(decodedText).toBe(sampleText);
+
+    const rawBytes = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0x00, 0xff]);
+    const binB64 = uint8ArrayToBase64(rawBytes);
+    expect(Array.from(Uint8Array.from(atob(binB64), (c) => c.charCodeAt(0)))).toEqual(Array.from(rawBytes));
+
+    const shareFile = vi.fn<NativeFileExporter['shareFile']>(async () => undefined);
+    const nativeExporter: NativeFileExporter = {
+      isNative: () => true,
+      shareFile,
+    };
+
+    await downloadTextFile('test_song.json', sampleText, 'application/json', nativeExporter);
+    expect(shareFile).toHaveBeenCalledWith({
+      filename: 'test_song.json',
+      base64Data: textB64,
+      title: 'test_song.json',
+      mime: 'application/json',
+    });
+
+    const project = createDefaultProject();
+    const compiled = compileSong(project, 'piano');
+    await downloadMidi(compiled, project, 'piano', nativeExporter);
+    expect(shareFile).toHaveBeenCalledTimes(2);
+    const midiCall = shareFile.mock.calls[1][0];
+    expect(midiCall.filename).toBe('motif_C_major.mid');
+    expect(midiCall.mime).toBe('audio/midi');
+    const midiHeader = atob(midiCall.base64Data).slice(0, 4);
+    expect(midiHeader).toBe('MThd');
+
+    // 웹 환경(isNative: false)에서는 네이티브 shareFile 대신 Blob URL 다운로드를 사용한다.
+    shareFile.mockClear();
+    const origCreateObjectURL = URL.createObjectURL;
+    const origRevokeObjectURL = URL.revokeObjectURL;
+    const createUrlMock = vi.fn(() => 'blob:motif-test');
+    const revokeUrlMock = vi.fn();
+    URL.createObjectURL = createUrlMock;
+    URL.revokeObjectURL = revokeUrlMock;
+    try {
+      await downloadTextFile('web.json', sampleText, 'application/json', {
+        isNative: () => false,
+        shareFile,
+      });
+      expect(shareFile).not.toHaveBeenCalled();
+      expect(createUrlMock).toHaveBeenCalledTimes(1);
+      expect(revokeUrlMock).toHaveBeenCalledWith('blob:motif-test');
+    } finally {
+      URL.createObjectURL = origCreateObjectURL;
+      URL.revokeObjectURL = origRevokeObjectURL;
+    }
   });
 });

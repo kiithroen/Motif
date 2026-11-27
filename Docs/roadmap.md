@@ -15,8 +15,9 @@
 - **다중 곡 슬롯 및 JSON 백업 완료:** 자유 스케치 프로젝트를 최대 슬롯 한도 내에서 생성·복제·이름 변경·2단계 삭제·드로어 목록 전환으로 관리하고(`src/core/projectLibrary.ts`, `src/ui/songLibraryBar.ts`), 단일 곡(`motif-song`)·전체 라이브러리(`motif-library`)·단일 프로젝트 JSON 내보내기/불러오기 및 기존 단일 프로젝트(`motif_project_v1`) 자동 마이그레이션을 반영했다.
 - **구조·성능 리팩토링 완료:** `src/core/compiler.ts`의 `previewModifierDiff`에 기준 컴파일 재사용 및 bounded 캐싱을 적용해 L2 변형 카드 렌더링과 전/후 비교 미리듣기의 중복 컴파일을 줄였고, `src/main.ts`의 저장소·파일 다운로드(`src/app/storage.ts`), 키보드 단축키(`src/app/shortcuts.ts`), Gemini/로컬 이론 코치 제어(`src/app/coachController.ts`) 책임을 분리했다.
 - **갤럭시 Z 폴드7 모바일 최적화·터치 UX·PWA 완료:** 접힌 커버 화면(`<=600px`)과 펼친 메인 화면(`601px~1060px`) 듀얼 폼팩터 반응형 레이아웃, 접이식 상단 도구 바, 하단 고정 엄지 독(`#mobile-thumb-dock`), 가로 스와이프 코드 스트립 활성 마디 추적, L3 피아노롤 터치 스크롤/탭 분리·`입력/이동`·`범위 선택` 도구 전환·3단계 배율(`작게`/`보통`/`크게`)·터치 정밀 편집(반음·스텝·음표 길이 `adjustPianoRollNotesDuration`) 및 `manifest.webmanifest`·`sw.js` 기반 standalone PWA 설치를 반영했다.
+- **Capacitor Android 패키징 및 디버그 APK 빌드 완료:** `@capacitor/core`·`@capacitor/android`·`@capacitor/filesystem`·`@capacitor/share` 기반 Android 프로젝트(`capacitor.config.ts`, `android/`)를 구성하고, Android WebView `.mid`/`.json` 네이티브 공유 브릿지(`src/app/storage.ts`), 네이티브 환경 SW 비활성화 가드, 폴더블 화면 전환 유지(`resizeableActivity`·`configChanges`), 다크 런처 아이콘·테마 및 `app-debug.apk` 빌드를 완료했다.
 
 ## 다음 작업
 
-### Android 네이티브 패키징 (선택)
-- 필요 시 Capacitor 기반 Android APK 패키징 및 WebView 파일 공유(`.mid`/`.json`) 브릿지를 검토한다.
+### 실기기 설치·플레이스토어 릴리스 서명 (선택)
+- 필요 시 무선 ADB 연결로 폴드7 실기기 설치 테스트 및 릴리스 키스토어 서명(`.aab`) 구성을 검토한다.

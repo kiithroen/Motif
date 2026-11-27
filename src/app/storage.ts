@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core';
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import type { CompiledSong } from '../core/compiler';
 import { exportToMidi } from '../core/midi';
 import type { ChordInstrument, SongProject, TrackKey, TrackVolumes } from '../core/model';
@@ -150,8 +153,47 @@ export function saveProgress(key: string, progress: ProgressStore, storage?: Sto
   }
 }
 
-export function downloadTextFile(filename: string, content: string, mime: string): void {
-  const blob = new Blob([content], { type: mime });
+export interface NativeFileExporter {
+  isNative: () => boolean;
+  shareFile: (params: {
+    filename: string;
+    base64Data: string;
+    title: string;
+    mime: string;
+  }) => Promise<void>;
+}
+
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+export function utf8ToBase64(text: string): string {
+  return uint8ArrayToBase64(new TextEncoder().encode(text));
+}
+
+const defaultNativeExporter: NativeFileExporter = {
+  isNative: () => Capacitor.isNativePlatform(),
+  shareFile: async ({ filename, base64Data, title }) => {
+    const written = await Filesystem.writeFile({
+      path: filename,
+      data: base64Data,
+      directory: Directory.Cache,
+    });
+    await Share.share({
+      title,
+      url: written.uri,
+      dialogTitle: title,
+    });
+  },
+};
+
+function triggerBlobDownload(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -162,21 +204,42 @@ export function downloadTextFile(filename: string, content: string, mime: string
   URL.revokeObjectURL(url);
 }
 
-export function downloadMidi(
+export async function downloadTextFile(
+  filename: string,
+  content: string,
+  mime: string,
+  exporter: NativeFileExporter = defaultNativeExporter
+): Promise<void> {
+  if (exporter.isNative()) {
+    await exporter.shareFile({
+      filename,
+      base64Data: utf8ToBase64(content),
+      title: filename,
+      mime,
+    });
+    return;
+  }
+  triggerBlobDownload(filename, new Blob([content], { type: mime }));
+}
+
+export async function downloadMidi(
   compiled: CompiledSong,
   project: SongProject,
-  chordView: ChordInstrument
-): void {
+  chordView: ChordInstrument,
+  exporter: NativeFileExporter = defaultNativeExporter
+): Promise<void> {
   const bytes = exportToMidi(compiled, project, chordView);
+  const filename = `motif_${NOTE_NAMES_SHARP[project.keyRoot]}_${project.mode}.mid`;
+  if (exporter.isNative()) {
+    await exporter.shareFile({
+      filename,
+      base64Data: uint8ArrayToBase64(bytes),
+      title: filename,
+      mime: 'audio/midi',
+    });
+    return;
+  }
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  const blob = new Blob([copy.buffer], { type: 'audio/midi' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `motif_${NOTE_NAMES_SHARP[project.keyRoot]}_${project.mode}.mid`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(filename, new Blob([copy.buffer], { type: 'audio/midi' }));
 }

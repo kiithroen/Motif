@@ -1,4 +1,5 @@
 import './styles.css';
+import { Capacitor } from '@capacitor/core';
 import { CoachController } from './app/coachController';
 import { bindAppShortcuts } from './app/shortcuts';
 import {
@@ -819,7 +820,7 @@ function init(): void {
     });
 
     topbarEl.querySelector('#btn-midi')?.addEventListener('click', () => {
-      downloadMidi(compiled, project, chordView);
+      void downloadMidi(compiled, project, chordView).catch(() => undefined);
     });
   }
 
@@ -1148,7 +1149,11 @@ function init(): void {
       onExportSong: (slotId) => {
         const slot = songLibrary.slots.find((s) => s.id === slotId) ?? getActiveSlot(songLibrary);
         const json = serializeSongBackup(slot);
-        downloadTextFile(buildBackupFilename(slot.name, 'song'), json, 'application/json;charset=utf-8');
+        void downloadTextFile(
+          buildBackupFilename(slot.name, 'song'),
+          json,
+          'application/json;charset=utf-8'
+        ).catch(() => undefined);
         songLibraryUiState.notice = {
           kind: 'info',
           text: `'${slot.name}' 곡을 JSON 파일로 저장했다.`,
@@ -1157,11 +1162,11 @@ function init(): void {
       },
       onExportLibrary: () => {
         const json = serializeLibraryBackup(songLibrary);
-        downloadTextFile(
+        void downloadTextFile(
           buildBackupFilename('motif_library_backup', 'library'),
           json,
           'application/json;charset=utf-8'
-        );
+        ).catch(() => undefined);
         songLibraryUiState.notice = {
           kind: 'info',
           text: `전체 ${songLibrary.slots.length}개 곡 슬롯 백업 JSON을 저장했다.`,
@@ -1248,7 +1253,7 @@ function init(): void {
 
   renderAll();
 
-  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  if ('serviceWorker' in navigator && import.meta.env.PROD && !Capacitor.isNativePlatform()) {
     void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   }
 }
