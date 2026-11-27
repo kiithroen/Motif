@@ -32,6 +32,8 @@ export class MotifTransport {
   private volumes: TrackVolumes = createDefaultTrackVolumes();
   private metronomeEnabled = PRESETS.playback.metronome.defaultEnabled;
   private loopRange: LoopBarRange | null = null;
+  private swing = PRESETS.playback.effects.defaultSwing;
+  private chiptuneMode = false;
   private callbacks: TransportCallbacks;
 
   private playing = false;
@@ -64,7 +66,23 @@ export class MotifTransport {
       chords: clampTrackVolume(volumes.chords),
       bass: clampTrackVolume(volumes.bass),
       drums: clampTrackVolume(volumes.drums),
+      pad: clampTrackVolume(volumes.pad ?? PRESETS.playback.mixer.defaults.pad),
     };
+  }
+
+  public setEffects(effects: {
+    swing?: number;
+    reverb?: number;
+    tone?: number;
+    chiptuneMode?: boolean;
+  }): void {
+    if (typeof effects.swing === 'number' && Number.isFinite(effects.swing)) {
+      this.swing = Math.max(0, Math.min(PRESETS.playback.effects.maxSwing, effects.swing));
+    }
+    if (typeof effects.chiptuneMode === 'boolean') {
+      this.chiptuneMode = effects.chiptuneMode;
+    }
+    this.audio.setMasterEffects?.({ reverb: effects.reverb, tone: effects.tone });
   }
 
   public getTrackVolumes(): TrackVolumes {
@@ -282,6 +300,9 @@ export class MotifTransport {
   }
 
   private scheduleStepEvents(song: CompiledSong, step: number, when: number, stepDur: number): void {
+    const swingOffset = step % 2 === 1 && this.swing > 0 ? this.swing * 0.5 * stepDur : 0;
+    const t = when + swingOffset;
+
     if (!this.mutes.chords && this.volumes.chords > 0) {
       let chordIdx = 0;
       for (const c of song.chords) {
@@ -289,13 +310,38 @@ export class MotifTransport {
           const baseScale = this.chordInstrument === 'guitar' ? 0.92 : 0.64;
           const vel = scaleTrackVelocity(c.velocity * baseScale, this.volumes.chords);
           if (vel > 0) {
-            if (this.chordInstrument === 'guitar') {
-              this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, vel, 0.22);
+            if (this.chiptuneMode) {
+              this.audio.playInstrument?.(
+                'chiptune_pulse25',
+                c.midi,
+                t + chordIdx * 0.005,
+                c.duration * stepDur,
+                vel * 0.72
+              );
+            } else if (this.chordInstrument === 'guitar') {
+              this.audio.playGuitar(c.midi, t + chordIdx * 0.011, c.duration * stepDur, vel, 0.22);
             } else {
-              this.audio.playPiano(c.midi, when + chordIdx * 0.006, c.duration * stepDur, vel, 0.2);
+              this.audio.playPiano(c.midi, t + chordIdx * 0.006, c.duration * stepDur, vel, 0.2);
             }
           }
           chordIdx++;
+        }
+      }
+    }
+
+    if (!this.mutes.pad && (this.volumes.pad ?? 0) > 0 && song.pad) {
+      for (const p of song.pad) {
+        if (p.step === step) {
+          const vel = scaleTrackVelocity(p.velocity * 0.75, this.volumes.pad ?? 0.65);
+          if (vel > 0) {
+            this.audio.playInstrument?.(
+              this.chiptuneMode ? 'chiptune_pulse25' : 'pad',
+              p.midi,
+              t,
+              p.duration * stepDur,
+              vel
+            );
+          }
         }
       }
     }
@@ -305,7 +351,11 @@ export class MotifTransport {
         if (b.step === step) {
           const vel = scaleTrackVelocity(b.velocity * 0.96, this.volumes.bass);
           if (vel > 0) {
-            this.audio.playBass(b.midi, when, b.duration * stepDur, vel);
+            if (this.chiptuneMode) {
+              this.audio.playChiptuneBass?.(b.midi, t, b.duration * stepDur, vel);
+            } else {
+              this.audio.playBass(b.midi, t, b.duration * stepDur, vel);
+            }
           }
         }
       }
@@ -316,7 +366,11 @@ export class MotifTransport {
         if (d.step === step) {
           const vel = scaleTrackVelocity(d.velocity * 1.05, this.volumes.drums);
           if (vel > 0) {
-            this.audio.playDrum(d.kind, when, vel);
+            if (this.chiptuneMode) {
+              this.audio.playChiptuneDrum?.(d.kind, t, vel);
+            } else {
+              this.audio.playDrum(d.kind, t, vel);
+            }
           }
         }
       }
@@ -328,10 +382,12 @@ export class MotifTransport {
           const vel = scaleTrackVelocity(m.velocity, this.volumes.melody);
           if (vel > 0) {
             const dur = m.duration * stepDur;
-            if (this.melodyInstrument === 'guitar') {
-              this.audio.playGuitar(m.midi, when, dur, vel, 0.24);
+            if (this.audio.playInstrument) {
+              this.audio.playInstrument(this.melodyInstrument, m.midi, t, dur, vel);
+            } else if (this.melodyInstrument === 'guitar') {
+              this.audio.playGuitar(m.midi, t, dur, vel, 0.24);
             } else {
-              this.audio.playPiano(m.midi, when, dur, vel, 0.3);
+              this.audio.playPiano(m.midi, t, dur, vel, 0.3);
             }
           }
         }
@@ -341,7 +397,7 @@ export class MotifTransport {
     if (!this.previewSong && this.metronomeEnabled) {
       const beat = isMetronomeBeat(step);
       if (beat.trigger) {
-        this.audio.playMetronome?.(beat.accent, when);
+        this.audio.playMetronome?.(beat.accent, t);
       }
     }
   }

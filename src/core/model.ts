@@ -5,11 +5,20 @@ export type BarCount = 4 | 8 | 16;
 
 export type EditorLayer = 'L1' | 'L2' | 'L3';
 
-export type MelodyInstrument = 'piano' | 'guitar';
+export type MelodyInstrument =
+  | 'piano'
+  | 'guitar'
+  | 'epiano'
+  | 'clean_guitar'
+  | 'synth_lead'
+  | 'pad'
+  | 'strings'
+  | 'chiptune_pulse50'
+  | 'chiptune_pulse25';
 
 export type ChordInstrument = 'piano' | 'guitar';
 
-export type TrackKey = 'melody' | 'chords' | 'bass' | 'drums';
+export type TrackKey = 'melody' | 'chords' | 'bass' | 'drums' | 'pad';
 
 export type TrackVolumes = Record<TrackKey, number>;
 
@@ -97,7 +106,12 @@ export interface SongProject {
   bakedMelody: NoteEvent[];
   bakedBass?: NoteEvent[];
   bakedChords?: NoteEvent[];
+  bakedPad?: NoteEvent[];
   customDrums?: DrumStepPattern;
+  swing?: number;
+  reverb?: number;
+  tone?: number;
+  chiptuneMode?: boolean;
 }
 
 export interface ProgressionPreset {
@@ -162,6 +176,12 @@ export interface PlaybackPresets {
     durationSec: number;
     accentVelocity: number;
     beatVelocity: number;
+  };
+  effects: {
+    defaultSwing: number;
+    maxSwing: number;
+    defaultReverb: number;
+    defaultTone: number;
   };
 }
 
@@ -295,6 +315,7 @@ export function cloneProject(project: SongProject): SongProject {
     bakedMelody: project.bakedMelody.map((n) => ({ ...n })),
     bakedBass: project.bakedBass ? project.bakedBass.map((n) => ({ ...n })) : undefined,
     bakedChords: project.bakedChords ? project.bakedChords.map((n) => ({ ...n })) : undefined,
+    bakedPad: project.bakedPad ? project.bakedPad.map((n) => ({ ...n })) : undefined,
     customDrums: project.customDrums
       ? {
           kicks: [...project.customDrums.kicks],

@@ -85,7 +85,7 @@ function escapeHtml(text: string): string {
 }
 
 export type PianoRollToolMode = 'draw' | 'select';
-export type L3EditTrack = 'melody' | 'chords' | 'bass' | 'drums';
+export type L3EditTrack = 'melody' | 'chords' | 'bass' | 'pad' | 'drums';
 
 interface PianoRollMetrics {
   minMidi: number;
@@ -137,6 +137,7 @@ function getTrackPitchBounds(track: L3EditTrack): { minMidi: number; maxMidi: nu
   const cfg = PRESETS.pianoRoll;
   if (track === 'bass') return { minMidi: 24, maxMidi: 60 };
   if (track === 'chords') return { minMidi: 36, maxMidi: 84 };
+  if (track === 'pad') return { minMidi: 48, maxMidi: 84 };
   return { minMidi: cfg.minMidi, maxMidi: cfg.maxMidi };
 }
 
@@ -182,6 +183,7 @@ function getTrackNotesFromCompiled(
 ): Array<NoteEvent & { role?: HarmonicRole }> {
   if (track === 'chords') return compiled.chords;
   if (track === 'bass') return compiled.bass;
+  if (track === 'pad') return compiled.pad;
   return compiled.melody;
 }
 
@@ -1037,6 +1039,7 @@ function renderL3TrackTabs(activeTrack: L3EditTrack, project: SongProject): stri
     { id: 'melody', label: '멜로디', edited: project.baked && project.bakedMelody.length > 0 },
     { id: 'chords', label: '코드 반주', edited: Boolean(project.bakedChords) },
     { id: 'bass', label: '베이스', edited: Boolean(project.bakedBass) },
+    { id: 'pad', label: '보조/패드', edited: Boolean(project.bakedPad) },
     { id: 'drums', label: '드럼 시퀀서', edited: Boolean(project.customDrums) },
   ];
   return `
@@ -1371,7 +1374,9 @@ function renderL3Body(
         ? '#a78bfa'
         : track === 'bass'
           ? '#f59e0b'
-          : noteRoleColor(n.role ?? 'passing');
+          : track === 'pad'
+            ? '#2dd4bf'
+            : noteRoleColor(n.role ?? 'passing');
     const label = n.duration >= 2 ? koreanNoteName(n.midi) : '';
     const isSelected = Boolean(opts.selectedIds?.has(n.id));
     noteRects += `
@@ -1448,6 +1453,28 @@ function renderL3Body(
     </div>
   `;
 
+  const velocityBarsHtml = trackNotes
+    .filter((n) => n.midi >= minMidi && n.midi <= maxMidi)
+    .map((n) => {
+      const pct = Math.max(12, Math.min(100, Math.round(n.velocity * 100)));
+      const x = n.step * stepW + 2;
+      const w = Math.max(8, stepW - 4);
+      const fill =
+        track === 'chords'
+          ? '#a78bfa'
+          : track === 'bass'
+            ? '#f59e0b'
+            : track === 'pad'
+              ? '#2dd4bf'
+              : noteRoleColor(n.role ?? 'passing');
+      return `
+        <div class="pr-vel-col" data-vel-note-id="${n.id}" style="left:${x}px;width:${w}px;" title="세기 ${pct}% (드래그해 조절)">
+          <div class="pr-vel-bar" style="height:${pct}%;background:${fill};"></div>
+        </div>
+      `;
+    })
+    .join('');
+
   return `
     <div class="pianoroll-wrap${hasCoachDiff && opts.coachCompareActive ? ' coach-comparing' : ''}">
       <div class="pianoroll-toolbar">
@@ -1474,6 +1501,7 @@ function renderL3Body(
         <div class="pr-keys-col">
           <div class="pr-keys-corner">음높이</div>
           <div class="pr-keys">${keysHtml}</div>
+          <div class="pr-vel-corner">세기</div>
         </div>
         <div class="pr-grid-scroll">
           <div class="pr-bar-header" style="width:${svgW}px">${barHeaderCells}</div>
@@ -1488,6 +1516,7 @@ function renderL3Body(
             <rect class="pr-marquee" visibility="hidden" pointer-events="none"/>
             ${playhead}
           </svg>
+          <div class="pr-velocity-lane" id="pr-velocity-lane" style="width:${svgW}px">${velocityBarsHtml}</div>
         </div>
       </div>
     </div>
@@ -1634,6 +1663,8 @@ function wireL3Events(
       next.bakedChords = undefined;
     } else if (activeTrack === 'bass') {
       next.bakedBass = undefined;
+    } else if (activeTrack === 'pad') {
+      next.bakedPad = undefined;
     } else {
       next.baked = false;
       next.bakedMelody = [];
@@ -1875,12 +1906,54 @@ function wireL3Events(
       next.bakedChords = nextNotes;
     } else if (activeTrack === 'bass') {
       next.bakedBass = nextNotes;
+    } else if (activeTrack === 'pad') {
+      next.bakedPad = nextNotes;
     } else {
       next.bakedMelody = nextNotes;
       next.baked = true;
     }
     callbacks.onProjectChange(next);
   };
+
+  // 하단 Velocity(음표 세기) 편집 레인 드래그/클릭 이벤트
+  const velLane = container.querySelector<HTMLElement>('#pr-velocity-lane');
+  if (velLane) {
+    velLane.querySelectorAll<HTMLElement>('.pr-vel-col').forEach((col) => {
+      col.addEventListener('pointerdown', (e) => {
+        const noteId = col.dataset.velNoteId;
+        if (!noteId) return;
+        e.preventDefault();
+        const barEl = col.querySelector<HTMLElement>('.pr-vel-bar');
+        let latestVel = 0.8;
+        const applyVelFromY = (clientY: number) => {
+          const rect = velLane.getBoundingClientRect();
+          const h = Math.max(1, rect.height);
+          const ratio = 1 - (clientY - rect.top) / h;
+          latestVel = Math.max(0.15, Math.min(1, Math.round(ratio * 20) / 20));
+          if (barEl) {
+            barEl.style.height = `${Math.round(latestVel * 100)}%`;
+          }
+        };
+        applyVelFromY(e.clientY);
+
+        const onMove = (ev: PointerEvent) => {
+          applyVelFromY(ev.clientY);
+        };
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          window.removeEventListener('pointercancel', onUp);
+          const nextNotes = getBaseNotes().map((n) =>
+            n.id === noteId ? { ...n, velocity: latestVel, origin: 'user' as const } : n
+          );
+          commitNotes(nextNotes);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+      });
+    });
+  }
 
   const selectAllNotes = (): void => {
     selectedIds.clear();

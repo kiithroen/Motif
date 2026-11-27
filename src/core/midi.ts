@@ -1,5 +1,17 @@
 import type { CompiledSong } from './compiler';
-import type { ChordInstrument, DrumKind, SongProject } from './model';
+import type { ChordInstrument, DrumKind, MelodyInstrument, SongProject } from './model';
+
+const MELODY_MIDI_PROGRAM: Record<MelodyInstrument, number> = {
+  piano: 0,
+  guitar: 24,
+  epiano: 4,
+  clean_guitar: 27,
+  synth_lead: 81,
+  pad: 89,
+  strings: 48,
+  chiptune_pulse50: 80,
+  chiptune_pulse25: 80,
+};
 
 const PPQ = 480;
 const TICKS_PER_STEP = PPQ / 4; // 16분음표 1스텝 = 120틱
@@ -84,7 +96,7 @@ export function exportToMidi(
   const usPerBeat = Math.round(60_000_000 / Math.max(40, Math.min(240, project.bpm)));
   const tempoBytes = [(usPerBeat >>> 16) & 0xff, (usPerBeat >>> 8) & 0xff, usPerBeat & 0xff];
 
-  const melodyProgram = project.melodyInstrument === 'guitar' ? 24 : 0; // 24 Nylon Guitar / 0 Acoustic Grand Piano
+  const melodyProgram = MELODY_MIDI_PROGRAM[project.melodyInstrument] ?? 0;
   const melodyTrack = buildNoteTrack(compiled.melody, 0, [
     { tick: 0, bytes: [0xff, 0x51, 0x03, ...tempoBytes] },
     { tick: 0, bytes: [0xc0, melodyProgram] },

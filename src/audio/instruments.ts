@@ -1,5 +1,5 @@
 import { CacheStorage, DrumMachine, Soundfont, SplendidGrandPiano } from 'smplr';
-import { type ChordInstrument, type DrumKind, PRESETS } from '../core/model';
+import { type ChordInstrument, type DrumKind, type MelodyInstrument, PRESETS } from '../core/model';
 
 export type SampleLoadStatus = 'idle' | 'loading' | 'ready' | 'fallback';
 
@@ -127,7 +127,13 @@ export class MotifAudioEngine {
   private bassBus: AudioNode | null = null;
   private drumBus: AudioNode | null = null;
   private metronomeBus: AudioNode | null = null;
+  private masterTone: BiquadFilterNode | null = null;
+  private reverbSend: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private pulseWaveCache = new Map<number, PeriodicWave>();
+  private extraSamplers = new Map<string, { voice: SamplerVoice; ready: boolean; loading: boolean }>();
+  private reverbAmount = PRESETS.playback.effects.defaultReverb;
+  private toneAmount = PRESETS.playback.effects.defaultTone;
 
   private samplers: SamplerBundle | null = null;
   private readyVoices: Record<VoiceKey, boolean> = {
@@ -192,8 +198,30 @@ export class MotifAudioEngine {
 
       const master = ctx.createGain();
       master.gain.value = 0.92;
-      comp.connect(master);
       master.connect(ctx.destination);
+
+      const masterTone = ctx.createBiquadFilter();
+      masterTone.type = 'highshelf';
+      masterTone.frequency.value = 3200;
+      masterTone.gain.value = this.toneAmount * 6;
+      comp.connect(masterTone);
+      masterTone.connect(master);
+
+      const reverbSend = ctx.createGain();
+      reverbSend.gain.value = this.reverbAmount * 0.45;
+      if (typeof ctx.createConvolver === 'function') {
+        try {
+          const convolver = ctx.createConvolver();
+          convolver.buffer = this.buildReverbImpulse(ctx);
+          comp.connect(reverbSend);
+          reverbSend.connect(convolver);
+          convolver.connect(master);
+        } catch {
+          // Convolver 미지원 환경은 드라이 출력만 사용한다.
+        }
+      }
+      this.masterTone = masterTone;
+      this.reverbSend = reverbSend;
 
       // 그랜드 피아노 음압을 기준으로 낮추고 기타·베이스·드럼 존재감을 맞춘다.
       const pianoGain = ctx.createGain();
@@ -344,6 +372,14 @@ export class MotifAudioEngine {
         }
       }
     }
+    for (const entry of this.extraSamplers.values()) {
+      if (!entry.ready) continue;
+      try {
+        entry.voice.stop?.(t);
+      } catch {
+        // 확장 샘플러 정지 오류는 무시한다.
+      }
+    }
 
     for (const voice of this.activeFallbackVoices) {
       for (const env of voice.envs) {
@@ -363,6 +399,35 @@ export class MotifAudioEngine {
       }
     }
     this.activeFallbackVoices.clear();
+  }
+
+  public setMasterEffects(effects: { reverb?: number; tone?: number }): void {
+    if (typeof effects.reverb === 'number' && Number.isFinite(effects.reverb)) {
+      this.reverbAmount = Math.max(0, Math.min(1, effects.reverb));
+      if (this.reverbSend) {
+        this.reverbSend.gain.value = this.reverbAmount * 0.45;
+      }
+    }
+    if (typeof effects.tone === 'number' && Number.isFinite(effects.tone)) {
+      this.toneAmount = Math.max(-1, Math.min(1, effects.tone));
+      if (this.masterTone) {
+        this.masterTone.gain.value = this.toneAmount * 6;
+      }
+    }
+  }
+
+  private buildReverbImpulse(ctx: AudioContext): AudioBuffer {
+    const durationSec = 1.3;
+    const len = Math.max(1, Math.floor(ctx.sampleRate * durationSec));
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const decay = Math.pow(1 - i / len, 2.4);
+        data[i] = (Math.random() * 2 - 1) * decay * 0.45;
+      }
+    }
+    return buf;
   }
 
   private buildNoiseBuffer(ctx: AudioContext): AudioBuffer {
@@ -723,6 +788,238 @@ export class MotifAudioEngine {
     this.registerFallbackVoice([hat], [hg]);
     hat.start(t0);
     hat.stop(t0 + 0.065);
+  }
+
+  public playInstrument(
+    instrument: MelodyInstrument,
+    midi: number,
+    when: number,
+    durationSec: number,
+    velocity = 0.75
+  ): void {
+    if (instrument === 'piano') {
+      this.playPiano(midi, when, durationSec, velocity);
+      return;
+    }
+    if (instrument === 'guitar') {
+      this.playGuitar(midi, when, durationSec, velocity);
+      return;
+    }
+
+    const ctx = this.ensureContext();
+    const t0 = Math.max(ctx.currentTime, when);
+
+    if (instrument === 'chiptune_pulse50' || instrument === 'chiptune_pulse25') {
+      this.playChiptunePulse(
+        ctx,
+        midi,
+        t0,
+        durationSec,
+        velocity,
+        instrument === 'chiptune_pulse25' ? 0.25 : 0.5
+      );
+      return;
+    }
+
+    const sfNameMap: Record<string, string> = {
+      epiano: 'electric_piano_1',
+      clean_guitar: 'electric_guitar_clean',
+      synth_lead: 'lead_2_sawtooth',
+      pad: 'pad_2_warm',
+      strings: 'string_ensemble_1',
+    };
+    const sfName = sfNameMap[instrument];
+    if (sfName && this.pianoBus && typeof window !== 'undefined' && this.readyVoices.piano) {
+      let entry = this.extraSamplers.get(sfName);
+      if (!entry) {
+        try {
+          const storage = 'caches' in window ? CacheStorage('motif-smplr-v1') : undefined;
+          const voice = Soundfont(ctx, {
+            instrument: sfName,
+            destination: this.pianoBus,
+            storage,
+            volume: 127,
+            extraGain: 4.5,
+          });
+          entry = { voice, ready: false, loading: true };
+          this.extraSamplers.set(sfName, entry);
+          void Promise.resolve(voice.load)
+            .then(() => {
+              if (entry) {
+                entry.ready = true;
+                entry.loading = false;
+              }
+            })
+            .catch(() => {
+              if (entry) entry.loading = false;
+            });
+        } catch {
+          // Soundfont 초기화 실패 시 아래 폴백 신스로 재생한다.
+        }
+      }
+      if (entry?.ready) {
+        try {
+          entry.voice.start({
+            note: midi,
+            time: t0,
+            duration: Math.max(0.12, durationSec + 0.06),
+            velocity: toMidiVelocity(velocity),
+          });
+          return;
+        } catch {
+          // 폴백 신스로 복구한다.
+        }
+      }
+    }
+
+    this.playFallbackVoiceForInstrument(ctx, instrument, midi, t0, durationSec, velocity);
+  }
+
+  private getPulseWave(ctx: AudioContext, duty: number): PeriodicWave | null {
+    if (typeof ctx.createPeriodicWave !== 'function') return null;
+    const key = Math.round(duty * 100);
+    const cached = this.pulseWaveCache.get(key);
+    if (cached) return cached;
+    const harmonics = 24;
+    const real = new Float32Array(harmonics + 1);
+    const imag = new Float32Array(harmonics + 1);
+    for (let n = 1; n <= harmonics; n++) {
+      imag[n] = (2 / (n * Math.PI)) * (1 - Math.cos(2 * Math.PI * n * duty));
+      real[n] = (2 / (n * Math.PI)) * Math.sin(2 * Math.PI * n * duty);
+    }
+    const wave = ctx.createPeriodicWave(real, imag);
+    this.pulseWaveCache.set(key, wave);
+    return wave;
+  }
+
+  public playChiptunePulse(
+    ctx: AudioContext,
+    midi: number,
+    t0: number,
+    durationSec: number,
+    velocity: number,
+    duty = 0.5
+  ): void {
+    if (!this.pianoBus) return;
+    const freq = midiToFreq(midi);
+    const osc = ctx.createOscillator();
+    const wave = this.getPulseWave(ctx, duty);
+    if (wave && typeof osc.setPeriodicWave === 'function') {
+      osc.setPeriodicWave(wave);
+    } else {
+      osc.type = 'square';
+    }
+    osc.frequency.setValueAtTime(freq, t0);
+
+    const env = ctx.createGain();
+    const dur = Math.max(0.06, durationSec);
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(velocity * 0.22, t0 + 0.006);
+    env.gain.setValueAtTime(velocity * 0.18, t0 + Math.max(0.01, dur * 0.75));
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.02);
+
+    osc.connect(env);
+    env.connect(this.pianoBus);
+    this.registerFallbackVoice([osc], [env]);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.03);
+  }
+
+  public playChiptuneBass(midi: number, when: number, durationSec: number, velocity = 0.75): void {
+    const ctx = this.ensureContext();
+    if (!this.bassBus) return;
+    const t0 = Math.max(ctx.currentTime, when);
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(midiToFreq(midi), t0);
+
+    const env = ctx.createGain();
+    const dur = Math.max(0.08, durationSec);
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(velocity * 0.36, t0 + 0.006);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.03);
+
+    osc.connect(env);
+    env.connect(this.bassBus);
+    this.registerFallbackVoice([osc], [env]);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.04);
+  }
+
+  public playChiptuneDrum(kind: DrumKind, when: number, velocity = 0.75): void {
+    const ctx = this.ensureContext();
+    if (!this.drumBus || !this.noiseBuf) return;
+    const t0 = Math.max(ctx.currentTime, when);
+    if (kind === 'kick') {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(160, t0);
+      osc.frequency.exponentialRampToValueAtTime(42, t0 + 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.linearRampToValueAtTime(velocity * 0.42, t0 + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+      osc.connect(g);
+      g.connect(this.drumBus);
+      this.registerFallbackVoice([osc], [g]);
+      osc.start(t0);
+      osc.stop(t0 + 0.13);
+      return;
+    }
+    // 8비트 노이즈 기반 스네어·하이햇·클랩
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = kind === 'hat' ? 'highpass' : 'bandpass';
+    filter.frequency.value = kind === 'hat' ? 7500 : kind === 'clap' ? 1600 : 2200;
+    const g = ctx.createGain();
+    const dur = kind === 'hat' ? 0.045 : 0.11;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(velocity * (kind === 'hat' ? 0.12 : 0.24), t0 + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    noise.connect(filter);
+    filter.connect(g);
+    g.connect(this.drumBus);
+    this.registerFallbackVoice([noise], [g]);
+    noise.start(t0);
+    noise.stop(t0 + dur + 0.01);
+  }
+
+  private playFallbackVoiceForInstrument(
+    ctx: AudioContext,
+    instrument: MelodyInstrument,
+    midi: number,
+    t0: number,
+    durationSec: number,
+    velocity: number
+  ): void {
+    if (instrument === 'clean_guitar') {
+      this.playFallbackGuitar(ctx, midi, t0, durationSec, velocity);
+      return;
+    }
+    if (!this.pianoBus) return;
+    const freq = midiToFreq(midi);
+    const osc = ctx.createOscillator();
+    osc.type =
+      instrument === 'synth_lead'
+        ? 'sawtooth'
+        : instrument === 'pad' || instrument === 'strings'
+          ? 'triangle'
+          : 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+
+    const env = ctx.createGain();
+    const attack = instrument === 'pad' || instrument === 'strings' ? 0.09 : 0.012;
+    const dur = Math.max(0.1, durationSec);
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(velocity * 0.22, t0 + attack);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.14);
+
+    osc.connect(env);
+    env.connect(this.pianoBus);
+    this.registerFallbackVoice([osc], [env]);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.16);
   }
 
   public auditionChord(midis: number[], instrument: ChordInstrument = 'piano'): void {

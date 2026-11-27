@@ -1164,8 +1164,18 @@ describe('L3 PianoRoll pointer interactions', () => {
       onPreviewModifier: vi.fn(),
     });
 
-    // 트랙 탭 4개 확인
-    expect(container.querySelectorAll('[data-l3-track]').length).toBe(4);
+    // 트랙 탭 5개(멜로디, 코드 반주, 베이스, 보조/패드, 드럼 시퀀서) 확인
+    expect(container.querySelectorAll('[data-l3-track]').length).toBe(5);
+
+    // Velocity 레인 막대가 렌더링되고 드래그로 음표 세기를 조절할 수 있다.
+    const velLane = container.querySelector<HTMLElement>('#pr-velocity-lane')!;
+    expect(velLane).not.toBeNull();
+    velLane.getBoundingClientRect = () =>
+      ({ left: 0, top: 100, right: 800, bottom: 154, width: 800, height: 54, x: 0, y: 100, toJSON: () => ({}) }) as DOMRect;
+    const firstVelCol = velLane.querySelector<HTMLElement>('.pr-vel-col[data-vel-note-id="n_1"]')!;
+    firstVelCol.dispatchEvent(pointerEvent('pointerdown', 10, 145));
+    window.dispatchEvent(pointerEvent('pointerup', 10, 145));
+    expect(project.bakedMelody.find((n) => n.id === 'n_1')?.velocity).toBeLessThan(0.5);
 
     // 폴리포니: 기존 n_1(step 0, midi 72)과 같은 스텝에 다른 음(midi 76)을 추가해도 n_1이 유지된다.
     const svg = container.querySelector<SVGSVGElement>('.pr-svg')!;

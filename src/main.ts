@@ -144,6 +144,15 @@ function init(): void {
   });
   transport.setTrackVolumes(volumes);
   transport.setMetronome(metronome.enabled);
+  const syncTransportEffects = () => {
+    transport.setEffects({
+      swing: project.swing ?? PRESETS.playback.effects.defaultSwing,
+      reverb: project.reverb ?? PRESETS.playback.effects.defaultReverb,
+      tone: project.tone ?? PRESETS.playback.effects.defaultTone,
+      chiptuneMode: Boolean(project.chiptuneMode),
+    });
+  };
+  syncTransportEffects();
 
   root.innerHTML = `
     <div class="app-shell">
@@ -238,6 +247,7 @@ function init(): void {
     transport.setLoopRange(null);
     project = cloneProject(target);
     compiled = compileSong(project, chordView);
+    syncTransportEffects();
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     renderAll();
   }
@@ -387,6 +397,7 @@ function init(): void {
       songLibrary = updateActiveSlotProject(songLibrary, project);
       saveLibrary(songLibrary);
     }
+    syncTransportEffects();
     transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     if (!recompileAudioOnly) {
       renderAll();
@@ -574,8 +585,12 @@ function init(): void {
       { key: 'melody', label: '멜로디' },
       { key: 'chords', label: '코드' },
       { key: 'bass', label: '베이스' },
+      { key: 'pad', label: '보조/패드' },
       { key: 'drums', label: '드럼' },
     ];
+    const swingPct = Math.round(((project.swing ?? PRESETS.playback.effects.defaultSwing) / PRESETS.playback.effects.maxSwing) * 100);
+    const reverbPct = Math.round((project.reverb ?? PRESETS.playback.effects.defaultReverb) * 100);
+    const toneVal = Math.round((project.tone ?? PRESETS.playback.effects.defaultTone) * 100);
     const { min: mixMin, max: mixMax, step: mixStep } = PRESETS.playback.mixer;
     const metronomeLabel = metronome.enabled
       ? metronome.autoActivated
@@ -611,6 +626,20 @@ function init(): void {
                 `
               )
               .join('')}
+          </div>
+          <div class="mixer-effects-row">
+            <label class="mixer-effect-item">
+              <span>스윙 (Swing) <strong id="eff-val-swing">${swingPct}%</strong></span>
+              <input id="sl-swing" type="range" min="0" max="${PRESETS.playback.effects.maxSwing}" step="0.05" value="${project.swing ?? PRESETS.playback.effects.defaultSwing}" />
+            </label>
+            <label class="mixer-effect-item">
+              <span>리버브 (Reverb) <strong id="eff-val-reverb">${reverbPct}%</strong></span>
+              <input id="sl-reverb" type="range" min="0" max="1" step="0.05" value="${project.reverb ?? PRESETS.playback.effects.defaultReverb}" />
+            </label>
+            <label class="mixer-effect-item">
+              <span>톤 밝기 (Tone) <strong id="eff-val-tone">${toneVal > 0 ? `+${toneVal}` : toneVal}%</strong></span>
+              <input id="sl-tone" type="range" min="-1" max="1" step="0.1" value="${project.tone ?? PRESETS.playback.effects.defaultTone}" />
+            </label>
           </div>
           <div class="mixer-footer">
             <span>드럼을 음소거하면 박자 기준을 유지하도록 메트로놈이 자동으로 켜진다.</span>
@@ -669,8 +698,16 @@ function init(): void {
             <span>선율 악기</span>
             <select id="sel-inst">
               <option value="piano"${project.melodyInstrument === 'piano' ? ' selected' : ''}>그랜드 피아노</option>
+              <option value="epiano"${project.melodyInstrument === 'epiano' ? ' selected' : ''}>일렉트릭 피아노</option>
               <option value="guitar"${project.melodyInstrument === 'guitar' ? ' selected' : ''}>나일론 기타</option>
+              <option value="clean_guitar"${project.melodyInstrument === 'clean_guitar' ? ' selected' : ''}>클린 일렉 기타</option>
+              <option value="synth_lead"${project.melodyInstrument === 'synth_lead' ? ' selected' : ''}>신스 리드</option>
+              <option value="pad"${project.melodyInstrument === 'pad' ? ' selected' : ''}>웜 패드</option>
+              <option value="strings"${project.melodyInstrument === 'strings' ? ' selected' : ''}>스트링</option>
+              <option value="chiptune_pulse50"${project.melodyInstrument === 'chiptune_pulse50' ? ' selected' : ''}>8비트 펄스 50%</option>
+              <option value="chiptune_pulse25"${project.melodyInstrument === 'chiptune_pulse25' ? ' selected' : ''}>8비트 펄스 25%</option>
             </select>
+            <button class="btn btn-chip${project.chiptuneMode ? ' active' : ''}" id="btn-chiptune-mode" type="button" title="반주·베이스·드럼을 8비트 칩튠 음색 세트로 전환한다">8비트 세트</button>
           </div>
           <button class="btn btn-chip${mutes.melody ? ' muted' : ''}" data-mute="melody" type="button">멜로디</button>
           <button class="btn btn-chip${mutes.chords ? ' muted' : ''}" data-mute="chords" type="button">코드</button>
@@ -754,6 +791,15 @@ function init(): void {
       updateState(next, true);
     });
 
+    topbarEl.querySelector('#btn-chiptune-mode')?.addEventListener('click', () => {
+      const next = cloneProject(project);
+      next.chiptuneMode = !next.chiptuneMode;
+      if (next.chiptuneMode && next.melodyInstrument === 'piano') {
+        next.melodyInstrument = 'chiptune_pulse50';
+      }
+      updateState(next);
+    });
+
     topbarEl.querySelectorAll<HTMLButtonElement>('[data-mute]').forEach((btn) => {
       btn.addEventListener('click', () => {
         toggleTrackMute(btn.dataset.mute as TrackKey);
@@ -796,17 +842,59 @@ function init(): void {
       });
     });
 
+    const bindEffectSlider = (
+      selector: string,
+      valSelector: string,
+      key: 'swing' | 'reverb' | 'tone',
+      formatVal: (v: number) => string
+    ) => {
+      let startSnap: SongProject | null = null;
+      const sl = topbarEl.querySelector<HTMLInputElement>(selector);
+      sl?.addEventListener('input', () => {
+        if (!startSnap) startSnap = cloneProject(project);
+        const next = cloneProject(project);
+        const val = Number(sl.value);
+        next[key] = val;
+        const valEl = topbarEl.querySelector(valSelector);
+        if (valEl) valEl.textContent = formatVal(val);
+        updateState(next, { recompileAudioOnly: true, recordHistory: false });
+      });
+      sl?.addEventListener('change', () => {
+        if (!startSnap) startSnap = cloneProject(project);
+        const next = cloneProject(project);
+        next[key] = Number(sl.value);
+        const historyBase = startSnap;
+        startSnap = null;
+        updateState(next, { recompileAudioOnly: false, recordHistory: true, historyBase });
+      });
+    };
+
+    bindEffectSlider(
+      '#sl-swing',
+      '#eff-val-swing',
+      'swing',
+      (v) => `${Math.round((v / PRESETS.playback.effects.maxSwing) * 100)}%`
+    );
+    bindEffectSlider('#sl-reverb', '#eff-val-reverb', 'reverb', (v) => `${Math.round(v * 100)}%`);
+    bindEffectSlider('#sl-tone', '#eff-val-tone', 'tone', (v) => {
+      const pct = Math.round(v * 100);
+      return `${pct > 0 ? `+${pct}` : pct}%`;
+    });
+
     topbarEl.querySelector('#btn-mixer-reset')?.addEventListener('click', () => {
       volumes = createDefaultTrackVolumes();
       mutes.melody = false;
       mutes.chords = false;
       mutes.bass = false;
+      mutes.pad = false;
       mutes.drums = false;
       metronome = applyDrumMuteToMetronome(metronome, false);
       saveTrackVolumes(volumes);
-      transport.setMetronome(metronome.enabled);
-      transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
-      renderTopControls();
+      const next = cloneProject(project);
+      next.swing = PRESETS.playback.effects.defaultSwing;
+      next.reverb = PRESETS.playback.effects.defaultReverb;
+      next.tone = PRESETS.playback.effects.defaultTone;
+      updateState(next);
     });
 
     topbarEl.querySelector('#btn-undo')?.addEventListener('click', () => {
@@ -831,11 +919,7 @@ function init(): void {
 
   function auditionPitch(midi: number): void {
     const t0 = audio.currentTime + 0.01;
-    if (project.melodyInstrument === 'guitar') {
-      audio.playGuitar(midi, t0, 0.55, 0.78, 0.25);
-    } else {
-      audio.playPiano(midi, t0, 0.55, 0.78, 0.28);
-    }
+    audio.playInstrument(project.melodyInstrument, midi, t0, 0.55, 0.78);
   }
 
   function auditionChordWithNote(voicingMidi: number[], midi: number): void {

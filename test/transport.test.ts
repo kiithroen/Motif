@@ -207,9 +207,9 @@ describe('MotifTransport preview preservation', () => {
       song,
       120,
       'piano',
-      { melody: false, chords: false, bass: true, drums: true },
+      { melody: false, chords: false, bass: true, drums: true, pad: true },
       'piano',
-      { melody: 0.5, chords: 0, bass: 1, drums: 1 }
+      { melody: 0.5, chords: 0, bass: 1, drums: 1, pad: 0 }
     );
     transport.setMetronome(true);
     transport.start(true);

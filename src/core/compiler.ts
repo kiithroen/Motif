@@ -36,6 +36,7 @@ export interface CompiledSong {
   resolvedHalfChords: (ResolvedChord | null)[];
   chords: NoteEvent[];
   bass: NoteEvent[];
+  pad: NoteEvent[];
   drums: DrumEvent[];
   melody: AnnotatedMelodyNote[];
 }
@@ -455,6 +456,7 @@ function compileAccompaniment(
 ): {
   chords: NoteEvent[];
   bass: NoteEvent[];
+  pad: NoteEvent[];
   drums: DrumEvent[];
 } {
   const groove = PRESETS.grooves.find((g) => g.id === project.blocks.grooveId) ?? PRESETS.grooves[0];
@@ -464,12 +466,16 @@ function compileAccompaniment(
   const customDrums = project.customDrums;
   const hasBakedChords = Array.isArray(project.bakedChords);
   const hasBakedBass = Array.isArray(project.bakedBass);
+  const hasBakedPad = Array.isArray(project.bakedPad);
 
   const chords: NoteEvent[] = hasBakedChords
     ? normalizePolyNotes(project.bakedChords!, totalSteps)
     : [];
   const bass: NoteEvent[] = hasBakedBass
     ? normalizePolyNotes(project.bakedBass!, totalSteps)
+    : [];
+  const pad: NoteEvent[] = hasBakedPad
+    ? normalizePolyNotes(project.bakedPad!, totalSteps)
     : [];
   const drums: DrumEvent[] = [];
 
@@ -521,6 +527,27 @@ function compileAccompaniment(
       }
     }
 
+    if (!hasBakedPad) {
+      const addPadSlice = (rc: ResolvedChord, stepStart: number, dur: number, tag: string) => {
+        const padPitches = rc.voicingMidi.slice(1, 3).map((m) => (m < 60 ? m + 12 : m));
+        padPitches.forEach((midi, idx) => {
+          pad.push({
+            id: `p_${bar}_${tag}_${idx}`,
+            midi,
+            step: stepStart,
+            duration: dur,
+            velocity: Math.min(0.65, 0.34 + project.blocks.energy * 0.2),
+          });
+        });
+      };
+      if (halfRc) {
+        addPadSlice(firstRc, barStep, 8, 'a');
+        addPadSlice(halfRc, barStep + 8, 8, 'b');
+      } else {
+        addPadSlice(firstRc, barStep, 16, 'full');
+      }
+    }
+
     const drumSrc = customDrums ?? {
       kicks: groove.kicks,
       snares: groove.snares,
@@ -558,7 +585,7 @@ function compileAccompaniment(
     }
   }
 
-  return { chords, bass, drums };
+  return { chords, bass, pad, drums };
 }
 
 function annotateMelody(
@@ -588,7 +615,7 @@ export function compileSong(
     project.keyRoot,
     project.mode
   );
-  const { chords, bass, drums } = compileAccompaniment(
+  const { chords, bass, pad, drums } = compileAccompaniment(
     project,
     resolvedChords,
     resolvedHalfChords,
@@ -616,6 +643,7 @@ export function compileSong(
     resolvedHalfChords,
     chords,
     bass,
+    pad,
     drums,
     melody,
   };
@@ -657,6 +685,13 @@ export function resizeProjectBars(project: SongProject, nextBars: BarCount): Son
     const maxStep = nextBars * 16;
     next.bakedChords = normalizePolyNotes(
       next.bakedChords.filter((n) => n.step < maxStep),
+      maxStep
+    );
+  }
+  if (next.bakedPad) {
+    const maxStep = nextBars * 16;
+    next.bakedPad = normalizePolyNotes(
+      next.bakedPad.filter((n) => n.step < maxStep),
       maxStep
     );
   }
@@ -741,7 +776,7 @@ function createPreviewCacheEntry(
     unbakedProject.keyRoot,
     unbakedProject.mode
   );
-  const { chords, bass, drums } = compileAccompaniment(
+  const { chords, bass, pad, drums } = compileAccompaniment(
     unbakedProject,
     resolvedChords,
     resolvedHalfChords,
@@ -765,6 +800,7 @@ function createPreviewCacheEntry(
       resolvedHalfChords,
       chords,
       bass,
+      pad,
       drums,
       melody,
     },

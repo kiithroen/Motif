@@ -106,6 +106,7 @@ describe('playbackControl metronome and mixer', () => {
       chords: defaults.chords,
       bass: min,
       drums: defaults.drums,
+      pad: defaults.pad,
     });
 
     expect(scaleTrackVelocity(0.8, 0)).toBe(0);

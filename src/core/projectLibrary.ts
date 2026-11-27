@@ -83,7 +83,17 @@ export type ImportBackupResult =
   | { ok: false; error: string };
 
 const VALID_MODES = new Set<ScaleMode>(['major', 'minor']);
-const VALID_INSTRUMENTS = new Set<MelodyInstrument>(['piano', 'guitar']);
+const VALID_INSTRUMENTS = new Set<MelodyInstrument>([
+  'piano',
+  'guitar',
+  'epiano',
+  'clean_guitar',
+  'synth_lead',
+  'pad',
+  'strings',
+  'chiptune_pulse50',
+  'chiptune_pulse25',
+]);
 const VALID_LAYERS = new Set<EditorLayer>(['L1', 'L2', 'L3']);
 const VALID_ORIGINS = new Set<NoteOrigin>(['base', 'modifier', 'user']);
 const VALID_PROGRESSION_IDS = new Set(PRESETS.progressions.map((p) => p.id));
@@ -386,6 +396,9 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
   const sanitizedChords = Array.isArray(input.bakedChords)
     ? sanitizeNoteList(input.bakedChords, 36, 96, 'chord')
     : undefined;
+  const sanitizedPad = Array.isArray(input.bakedPad)
+    ? sanitizeNoteList(input.bakedPad, 48, 96, 'pad')
+    : undefined;
 
   let customDrums: DrumStepPattern | undefined;
   if (isPlainObject(input.customDrums)) {
@@ -447,7 +460,18 @@ export function sanitizeSongProject(input: unknown): SanitizeProjectResult {
       bakedMelody: sanitizedNotes,
       ...(sanitizedBass ? { bakedBass: sanitizedBass } : {}),
       ...(sanitizedChords ? { bakedChords: sanitizedChords } : {}),
+      ...(sanitizedPad ? { bakedPad: sanitizedPad } : {}),
       ...(customDrums ? { customDrums } : {}),
+      ...(typeof input.swing === 'number' && Number.isFinite(input.swing)
+        ? { swing: clampNumber(input.swing, 0, 0.6) }
+        : {}),
+      ...(typeof input.reverb === 'number' && Number.isFinite(input.reverb)
+        ? { reverb: clampNumber(input.reverb, 0, 1) }
+        : {}),
+      ...(typeof input.tone === 'number' && Number.isFinite(input.tone)
+        ? { tone: clampNumber(input.tone, -1, 1) }
+        : {}),
+      ...(typeof input.chiptuneMode === 'boolean' ? { chiptuneMode: input.chiptuneMode } : {}),
     },
     warnings: Array.from(new Set(warnings)),
   };

@@ -15,6 +15,7 @@ export interface TrackMuteState {
   chords: boolean;
   bass: boolean;
   drums: boolean;
+  pad?: boolean;
 }
 
 export interface MetronomeState {
@@ -22,7 +23,7 @@ export interface MetronomeState {
   autoActivated: boolean;
 }
 
-const TRACK_KEYS: readonly TrackKey[] = ['melody', 'chords', 'bass', 'drums'];
+const TRACK_KEYS: readonly TrackKey[] = ['melody', 'chords', 'bass', 'drums', 'pad'];
 
 /**
  * 프리셋 기본값으로 트랙별 볼륨 상태를 생성한다.
@@ -34,6 +35,7 @@ export function createDefaultTrackVolumes(): TrackVolumes {
     chords: defaults.chords,
     bass: defaults.bass,
     drums: defaults.drums,
+    pad: defaults.pad,
   };
 }
 
@@ -46,6 +48,7 @@ export function createDefaultTrackMutes(): TrackMuteState {
     chords: false,
     bass: false,
     drums: false,
+    pad: false,
   };
 }
 

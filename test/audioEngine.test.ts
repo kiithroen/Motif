@@ -296,4 +296,28 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
     expect(accentOsc.stop).toHaveBeenLastCalledWith(10);
     expect(beatOsc.stop).toHaveBeenLastCalledWith(10);
   });
+
+  it('plays 8-bit chiptune pulse/triangle/noise voices and applies master effects', () => {
+    const { ctx, createdOscillators } = createMockAudioContext();
+    const voice = deferredVoice().voice;
+    const engine = new MotifAudioEngine(
+      () => ({
+        piano: voice,
+        guitar: voice,
+        bass: voice,
+        drums: voice,
+        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short', clap: 'clap' },
+      }),
+      () => ctx
+    );
+
+    const before = createdOscillators.length;
+    engine.setMasterEffects({ reverb: 0.4, tone: 0.5 });
+    engine.playInstrument('chiptune_pulse50', 72, 10.1, 0.25, 0.8);
+    engine.playInstrument('chiptune_pulse25', 76, 10.2, 0.25, 0.8);
+    engine.playChiptuneBass(48, 10.1, 0.25, 0.8);
+    engine.playChiptuneDrum('kick', 10.1, 0.8);
+    engine.playChiptuneDrum('snare', 10.2, 0.8);
+    expect(createdOscillators.length).toBeGreaterThanOrEqual(before + 4);
+  });
 });
