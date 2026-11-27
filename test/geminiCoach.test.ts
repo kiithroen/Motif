@@ -3,7 +3,7 @@ import { GeminiCoachError, maskApiKey, requestGeminiCoach } from '../src/ai/gemi
 import { analyzeSong } from '../src/core/analyzer';
 import { COACH_CONFIG } from '../src/core/coachPatch';
 import { compileSong } from '../src/core/compiler';
-import { PRESETS, createDefaultProject } from '../src/core/model';
+import { createDefaultProject } from '../src/core/model';
 
 function createBaseArgs() {
   const project = createDefaultProject();
@@ -13,9 +13,8 @@ function createBaseArgs() {
 }
 
 describe('geminiCoach REST adapter', () => {
-  it('sends structured generateContent request and parses valid Gemini response', async () => {
+  it('sends structured generateContent request and parses valid tutor response', async () => {
     const { project, compiled, report } = createBaseArgs();
-    const altGroove = PRESETS.grooves[1].id;
 
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(
@@ -26,15 +25,14 @@ describe('geminiCoach REST adapter', () => {
                 parts: [
                   {
                     thought: true,
-                    text: '내부 사고 과정: 로파이 그루브와 iv 대리화음을 선택하자.',
+                    text: '내부 사고 과정: 4마디 iv 비교 예시와 직접 해보기 단계를 안내하자.',
                   },
                   {
                     text: JSON.stringify({
-                      headline: '따뜻한 로파이 분위기 적용',
-                      explanation: '리듬을 여유로운 그루브로 바꾸고 마지막 마디에 여운을 더했습니다.',
+                      headline: '4마디에 아련한 여운 더하기',
+                      explanation: '4마디의 IV 코드를 같은 루트의 마이너 iv로 바꾸면 색채가 부드럽게 가라앉습니다.',
+                      manualSteps: ['L2 변형 체인 탭에서 4마디 코드를 iv로 바꿔 들어 보세요.'],
                       patch: {
-                        bpm: 78,
-                        blocks: { grooveId: altGroove },
                         chords: [{ bar: 4, degree: 'iv' }],
                       },
                     }),
@@ -54,7 +52,7 @@ describe('geminiCoach REST adapter', () => {
         model: COACH_CONFIG.defaultModel,
       },
       mode: 'request',
-      userRequest: '로파이 느낌으로 바꿔 줘',
+      userRequest: '3~4마디 여운 더하는 이론 알려줘',
       project,
       compiled,
       report,
@@ -84,8 +82,8 @@ describe('geminiCoach REST adapter', () => {
     );
     expect(sentBody.systemInstruction.parts[0].text.length).toBeGreaterThan(20);
 
-    expect(result.response.headline).toBe('따뜻한 로파이 분위기 적용');
-    expect(result.response.patch?.blocks?.grooveId).toBe(altGroove);
+    expect(result.response.headline).toBe('4마디에 아련한 여운 더하기');
+    expect(result.response.manualSteps).toEqual(['L2 변형 체인 탭에서 4마디 코드를 iv로 바꿔 들어 보세요.']);
     expect(result.response.patch?.chords).toEqual([{ bar: 4, degree: 'iv' }]);
   });
 

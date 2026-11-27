@@ -5,17 +5,17 @@
     {
       "id": "gemini-4-hydrogen",
       "labelKo": "Gemini 4 Hydrogen (추천)",
-      "descKo": "빠르고 가벼운 기본 작곡 코칭 (무료·유료 지원)"
+      "descKo": "빠르고 가벼운 기본 작곡 튜터 (무료·유료 지원)"
     },
     {
       "id": "gemini-4-neon",
       "labelKo": "Gemini 4 Neon",
-      "descKo": "균형 잡힌 고성능 화성·편곡 코칭"
+      "descKo": "균형 잡힌 고성능 화성·이론 튜터"
     },
     {
       "id": "gemini-4-carbon",
       "labelKo": "Gemini 4 Carbon",
-      "descKo": "깊이 있는 심층 편곡·이론 분석"
+      "descKo": "깊이 있는 심층 화성·이론 분석"
     }
   ],
   "generation": {
@@ -23,34 +23,30 @@
     "maxOutputTokens": 4096
   },
   "limits": {
-    "minBpm": 60,
-    "maxBpm": 150,
-    "minEnergy": 0.1,
-    "maxEnergy": 1,
-    "minDensity": 0.1,
-    "maxDensity": 1,
-    "maxPromptLength": 400
+    "maxPromptLength": 400,
+    "maxDemoChords": 2,
+    "maxDemoModifiers": 2
   },
   "quickPrompts": [
     {
-      "id": "melancholy_end",
-      "label": "3~4마디 쓸쓸하게",
-      "prompt": "3~4마디를 더 쓸쓸하고 여운 있게 바꿔 줘"
+      "id": "explain_harmony",
+      "label": "코드 흐름 분석해 줘",
+      "prompt": "현재 코드 진행이 어떤 감정과 흐름을 만드는지 초보자 눈높이로 분석해 줘"
     },
     {
-      "id": "energetic_lift",
-      "label": "후반부 신나게",
-      "prompt": "후반부 마디를 더 경쾌하고 에너지 넘치게 끌어올려 줘"
+      "id": "find_awkward",
+      "label": "어색한 부분 이유 알려줘",
+      "prompt": "지금 곡에서 가장 어색하거나 단조롭게 들리는 마디와 그 음악적 이유를 알려 줘"
     },
     {
-      "id": "lofi_chill",
-      "label": "로파이 느낌으로",
-      "prompt": "전체적으로 여유롭고 따뜻한 로파이 분위기로 편곡해 줘"
+      "id": "cadence_mood",
+      "label": "3~4마디 여운 더하는 이론",
+      "prompt": "3~4마디에 여운을 더하려면 어떤 코드 대안이나 이론 기법을 써볼 수 있는지 비교 예시와 함께 알려 줘"
     },
     {
-      "id": "smooth_melody",
-      "label": "노래하듯 부드럽게",
-      "prompt": "멜로디 연결을 부드럽게 다듬고 안정적으로 마무리해 줘"
+      "id": "climax_tip",
+      "label": "후반부 살리는 기법",
+      "prompt": "후반부를 자연스럽게 끌어올리는 작곡 기법을 이론 설명과 비교 예시로 알려 줘"
     }
   ]
 }

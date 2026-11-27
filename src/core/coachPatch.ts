@@ -1,6 +1,6 @@
 import coachRaw from '../data/coach.json';
 import type { DiagnosisReport } from './analyzer';
-import { type CompiledSong, unpackBlocksToChain } from './compiler';
+import type { CompiledSong } from './compiler';
 import {
   PRESETS,
   type ModifierId,
@@ -38,13 +38,9 @@ export interface CoachConfigData {
     temperature?: number;
   };
   limits: {
-    minBpm: number;
-    maxBpm: number;
-    minEnergy: number;
-    maxEnergy: number;
-    minDensity: number;
-    maxDensity: number;
     maxPromptLength: number;
+    maxDemoChords: number;
+    maxDemoModifiers: number;
   };
   quickPrompts: CoachQuickPrompt[];
 }
@@ -62,29 +58,16 @@ export interface CoachModifierPatch {
   amount?: number;
 }
 
-export interface CoachBlocksPatch {
-  progressionId?: string;
-  grooveId?: string;
-  contourId?: string;
-  energy?: number;
-  density?: number;
-}
-
 export interface CoachPatch {
-  keyRoot?: number;
-  mode?: ScaleMode;
-  bars?: 4 | 8;
-  bpm?: number;
-  blocks?: CoachBlocksPatch;
   chords?: CoachChordPatch[];
   modifiers?: CoachModifierPatch[];
-  unbakeMelody?: boolean;
 }
 
 export interface CoachResponse {
   headline: string;
   explanation: string;
   theoryTip?: string;
+  manualSteps?: string[];
   patchSummary?: string;
   patch?: CoachPatch;
 }
@@ -140,9 +123,6 @@ export interface CoachContextPayload {
     }>;
   };
   catalog: {
-    progressions: Array<{ id: string; nameKo: string; moodKo: string; degrees: DegreeSymbol[] }>;
-    grooves: Array<{ id: string; nameKo: string; moodKo: string; defaultBpm: number }>;
-    contours: Array<{ id: string; nameKo: string; descKo: string }>;
     modifiers: Array<{ id: ModifierId; nameKo: string; descKo: string }>;
     availableDegrees: DegreeSymbol[];
   };
@@ -223,23 +203,6 @@ export function buildCoachContext(
       })),
     },
     catalog: {
-      progressions: PRESETS.progressions.map((p) => ({
-        id: p.id,
-        nameKo: p.nameKo,
-        moodKo: p.moodKo,
-        degrees: [...p.degrees],
-      })),
-      grooves: PRESETS.grooves.map((g) => ({
-        id: g.id,
-        nameKo: g.nameKo,
-        moodKo: g.moodKo,
-        defaultBpm: g.defaultBpm,
-      })),
-      contours: PRESETS.contours.map((c) => ({
-        id: c.id,
-        nameKo: c.nameKo,
-        descKo: c.descKo,
-      })),
       modifiers: PRESETS.modifiers.map((m) => ({
         id: m.id,
         nameKo: m.nameKo,
@@ -251,9 +214,6 @@ export function buildCoachContext(
 }
 
 export function buildCoachResponseSchema(): Record<string, unknown> {
-  const progressionIds = PRESETS.progressions.map((p) => p.id);
-  const grooveIds = PRESETS.grooves.map((g) => g.id);
-  const contourIds = PRESETS.contours.map((c) => c.id);
   const modifierIds = PRESETS.modifiers.map((m) => m.id);
   const degrees = [...PRESETS.availableDegrees];
   const limits = COACH_CONFIG.limits;
@@ -263,55 +223,35 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
     properties: {
       headline: {
         type: 'string',
-        description: '한 줄 핵심 코칭 요약 (한국어)',
+        description: '한 줄 핵심 이론 요약 (한국어)',
       },
       explanation: {
         type: 'string',
-        description: '도레미·기초 기타 코드 수준의 초보자를 위한 친절한 한국어 설명 (2~4문장)',
+        description: '도레미·기초 기타 코드 수준의 초보자를 위한 친절한 한국어 이론 설명 (2~4문장)',
       },
       theoryTip: {
         type: 'string',
         description: '선택적 음악 이론 한 줄 팁 (한국어)',
       },
+      manualSteps: {
+        type: 'array',
+        maxItems: 4,
+        items: {
+          type: 'string',
+        },
+        description: '사용자가 L2 또는 L3 화면에서 손으로 직접 따라 해볼 수 있는 단계 안내 (최대 4줄)',
+      },
       patchSummary: {
         type: 'string',
-        description: '제안하는 편곡 변경 한 줄 요약 (한국어)',
+        description: '비교 청취용 국소 대안 한 줄 요약 (한국어)',
       },
       patch: {
         type: 'object',
+        description: '비교 청취 전용 국소 대안 (원곡을 직접 수정하지 않음)',
         properties: {
-          keyRoot: {
-            type: 'integer',
-            minimum: 0,
-            maximum: 11,
-            description: '0(C)~11(B) 사이의 루트 음높이',
-          },
-          mode: {
-            type: 'string',
-            enum: ['major', 'minor'],
-          },
-          bars: {
-            type: 'integer',
-            enum: [4, 8],
-          },
-          bpm: {
-            type: 'integer',
-            minimum: limits.minBpm,
-            maximum: limits.maxBpm,
-          },
-          blocks: {
-            type: 'object',
-            properties: {
-              progressionId: { type: 'string', enum: progressionIds },
-              grooveId: { type: 'string', enum: grooveIds },
-              contourId: { type: 'string', enum: contourIds },
-              energy: { type: 'number', minimum: limits.minEnergy, maximum: limits.maxEnergy },
-              density: { type: 'number', minimum: limits.minDensity, maximum: limits.maxDensity },
-            },
-            additionalProperties: false,
-          },
           chords: {
             type: 'array',
+            maxItems: limits.maxDemoChords,
             items: {
               type: 'object',
               properties: {
@@ -332,6 +272,7 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
           },
           modifiers: {
             type: 'array',
+            maxItems: limits.maxDemoModifiers,
             items: {
               type: 'object',
               properties: {
@@ -343,10 +284,6 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
               additionalProperties: false,
             },
           },
-          unbakeMelody: {
-            type: 'boolean',
-            description: '고정된 L3 멜로디를 풀고 새 블록/변형으로 다시 생성할지 여부',
-          },
         },
         additionalProperties: false,
       },
@@ -357,14 +294,15 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
 }
 
 export function buildCoachSystemPrompt(): string {
+  const { maxDemoChords, maxDemoModifiers } = COACH_CONFIG.limits;
   return [
-    '너는 도레미 계이름과 기초 기타 코드만 아는 초보자에게 작곡 원리를 알려주는 한국어 음악 코치다.',
-    '어려운 전문 용어는 피하거나 계이름(도·레·미·파·솔·라·시)과 느낌으로 쉽게 풀어서 설명한다.',
-    '설명은 단정하고 친절한 한국어로 간결하게 쓴다.',
+    '너는 곡을 대신 작곡하거나 수정하지 않는 한국어 음악 이론 튜터다.',
+    '도레미 계이름과 기초 기타 코드만 아는 초보자에게 화성·선율·리듬 원리를 계이름(도·레·미·파·솔·라·시)과 느낌으로 쉽게 설명한다.',
+    '사용자의 L3 멜로디와 전체 곡 구조(키·조성·마디·BPM·L1 블록)는 절대 대신 덮어쓰거나 갈아엎지 않는다.',
+    `비교 청취 예시(patch)가 필요할 때만 마디 코드 최대 ${maxDemoChords}개(chords) 또는 L2 변형 카드 최대 ${maxDemoModifiers}개(modifiers)만 국소 대안으로 제안한다.`,
+    '가능하면 사용자가 직접 손으로 고쳐볼 수 있도록 manualSteps 에 구체적인 L2/L3 조작 안내를 1~3줄 적는다.',
     '반드시 응답 스키마에 맞는 순수 JSON 객체 하나만 출력한다(마크다운 코드블록 금지).',
-    'patch 를 제안할 때는 반드시 제공된 catalog 의 progressionId, grooveId, contourId, modifier.id, availableDegrees 만 사용한다.',
-    'chords 배열의 bar 필드는 반드시 1부터 시작하는 마디 번호(1~bars)로 지정한다.',
-    '사용자가 바꾸지 않아도 되는 항목은 patch 에 불필요하게 넣지 않는다.',
+    'patch 를 포함할 때는 반드시 제공된 catalog 의 availableDegrees 와 modifiers.id 만 사용하며, chords[].bar 는 1부터 시작하는 마디 번호를 쓴다.',
   ].join('\n');
 }
 
@@ -373,21 +311,24 @@ export function buildCoachUserPrompt(
   mode: 'explain' | 'request',
   userRequest?: string
 ): string {
+  const bakedNotice = context.song.baked
+    ? '주의: 현재 곡은 사용자가 직접 편집한 L3 멜로디(baked=true) 상태이므로 멜로디를 재생성하지 않고 화성(chords/modal_borrow) 비교 예시와 텍스트 기반 멜로디 조언만 우선 제공하라.'
+    : '참고: 현재 곡은 L1/L2 규칙 상태(baked=false)이므로 L2 코드·변형 카드 비교 예시로 차이를 들려줄 수 있다.';
+
   const instruction =
     mode === 'explain'
       ? [
-          '요청 유형: 로컬 이론 분석 리포트 해설 및 개선 패치 제안.',
-          '현재 곡 상태와 analysis 리포트를 보고, 왜 점수가 이렇게 나왔는지와 가장 효과적인 개선 포인트를 초보자 눈높이로 설명하라.',
-          '개선이 도움이 되면 바로 비교 재생해 볼 수 있도록 L1/L2 블록·코드·변형 카드 중심의 patch 도 함께 제안하라.',
+          '요청 유형: 로컬 이론 분석 리포트 해설.',
+          '현재 곡 상태와 analysis 리포트를 보고, 왜 점수가 이렇게 나왔는지와 가장 핵심적인 이론 원리를 초보자 눈높이로 설명하라.',
+          '청각 비교가 도움이 되면 국소 비교 예시(patch)와 사용자가 직접 해볼 manualSteps 를 제안하라.',
         ].join('\n')
       : [
-          '요청 유형: 자연어 편곡 요청 반영.',
-          `사용자 요청: "${(userRequest ?? '').trim()}"`,
-          '사용자 요청을 음악적으로 구현할 수 있는 L1/L2 patch 를 만들고, 무엇을 왜 바꿨는지 초보자 눈높이로 설명하라.',
-          '현재 멜로디가 baked=true 상태이고 블록·변형 변화가 체감돼야 한다면 unbakeMelody=true 를 포함하라.',
+          '요청 유형: 작곡 이론 질문·대안 비교.',
+          `사용자 질문: "${(userRequest ?? '').trim()}"`,
+          '질문에 대한 이론 원리를 먼저 설명하고, 사용자가 직접 바꿔 볼 manualSteps 와 필요 시 국소 비교 청취 예시(patch)를 제안하라.',
         ].join('\n');
 
-  return `${instruction}\n\n현재 곡 및 허용 카탈로그 JSON:\n${JSON.stringify(context)}`;
+  return `${instruction}\n${bakedNotice}\n\n현재 곡 및 허용 카탈로그 JSON:\n${JSON.stringify(context)}`;
 }
 
 export function extractJsonText(rawText: string): string {
@@ -415,132 +356,35 @@ export function sanitizeCoachPatch(
     return { patch: undefined, warnings };
   }
   if (!isPlainObject(raw)) {
-    warnings.push('패치 형식이 올바르지 않아 제안 변경을 건너뛰었다.');
+    warnings.push('비교 예시 패치 형식이 올바르지 않아 제외했다.');
     return { patch: undefined, warnings };
   }
 
+  const forbiddenFields = [
+    ['keyRoot', '키(keyRoot)'],
+    ['mode', '조성(mode)'],
+    ['bars', '마디 수(bars)'],
+    ['bpm', '빠르기(bpm)'],
+    ['blocks', 'L1 블록 일괄 교체(blocks)'],
+    ['unbakeMelody', '사용자 멜로디 덮어쓰기(unbakeMelody)'],
+  ] as const;
+
+  for (const [key, label] of forbiddenFields) {
+    if (raw[key] !== undefined) {
+      warnings.push(`튜터 정책상 ${label} 변경은 차단했다.`);
+    }
+  }
+
   const limits = COACH_CONFIG.limits;
-  const validProgressions = new Set(PRESETS.progressions.map((p) => p.id));
-  const validGrooves = new Set(PRESETS.grooves.map((g) => g.id));
-  const validContours = new Set(PRESETS.contours.map((c) => c.id));
   const validModifiers = new Set<string>(PRESETS.modifiers.map((m) => m.id));
   const validDegrees = new Set<string>(PRESETS.availableDegrees);
 
   const patch: CoachPatch = {};
   let hasAnyField = false;
 
-  if (raw.keyRoot !== undefined) {
-    if (typeof raw.keyRoot === 'number' && Number.isInteger(raw.keyRoot) && raw.keyRoot >= 0 && raw.keyRoot <= 11) {
-      patch.keyRoot = raw.keyRoot;
-      hasAnyField = true;
-    } else {
-      warnings.push('유효하지 않은 키(keyRoot) 값을 제외했다.');
-    }
-  }
-
-  if (raw.mode !== undefined) {
-    if (raw.mode === 'major' || raw.mode === 'minor') {
-      patch.mode = raw.mode;
-      hasAnyField = true;
-    } else {
-      warnings.push('유효하지 않은 조성(mode) 값을 제외했다.');
-    }
-  }
-
-  if (raw.bars !== undefined) {
-    if (raw.bars === 4 || raw.bars === 8) {
-      patch.bars = raw.bars;
-      hasAnyField = true;
-    } else {
-      warnings.push('마디 수는 4 또는 8만 지원해 해당 변경을 제외했다.');
-    }
-  }
-
-  const effectiveBars = patch.bars ?? currentBars;
-
-  if (raw.bpm !== undefined) {
-    if (typeof raw.bpm === 'number' && Number.isFinite(raw.bpm)) {
-      const clampedBpm = Math.round(clamp(raw.bpm, limits.minBpm, limits.maxBpm));
-      if (clampedBpm !== Math.round(raw.bpm)) {
-        warnings.push(`BPM 을 허용 범위(${limits.minBpm}~${limits.maxBpm})로 맞췄다.`);
-      }
-      patch.bpm = clampedBpm;
-      hasAnyField = true;
-    } else {
-      warnings.push('유효하지 않은 BPM 값을 제외했다.');
-    }
-  }
-
-  if (raw.blocks !== undefined) {
-    if (!isPlainObject(raw.blocks)) {
-      warnings.push('블록 패치 형식이 올바르지 않아 제외했다.');
-    } else {
-      const blocksPatch: CoachBlocksPatch = {};
-      let hasBlockField = false;
-
-      if (raw.blocks.progressionId !== undefined) {
-        if (typeof raw.blocks.progressionId === 'string' && validProgressions.has(raw.blocks.progressionId)) {
-          blocksPatch.progressionId = raw.blocks.progressionId;
-          hasBlockField = true;
-        } else {
-          warnings.push('목록에 없는 코드 진행 ID 를 제외했다.');
-        }
-      }
-
-      if (raw.blocks.grooveId !== undefined) {
-        if (typeof raw.blocks.grooveId === 'string' && validGrooves.has(raw.blocks.grooveId)) {
-          blocksPatch.grooveId = raw.blocks.grooveId;
-          hasBlockField = true;
-        } else {
-          warnings.push('목록에 없는 그루브 ID 를 제외했다.');
-        }
-      }
-
-      if (raw.blocks.contourId !== undefined) {
-        if (typeof raw.blocks.contourId === 'string' && validContours.has(raw.blocks.contourId)) {
-          blocksPatch.contourId = raw.blocks.contourId;
-          hasBlockField = true;
-        } else {
-          warnings.push('목록에 없는 선율 윤곽 ID 를 제외했다.');
-        }
-      }
-
-      if (raw.blocks.energy !== undefined) {
-        if (typeof raw.blocks.energy === 'number' && Number.isFinite(raw.blocks.energy)) {
-          const clampedEnergy = round2(clamp(raw.blocks.energy, limits.minEnergy, limits.maxEnergy));
-          if (raw.blocks.energy < limits.minEnergy || raw.blocks.energy > limits.maxEnergy) {
-            warnings.push(`에너지 값을 허용 범위(${limits.minEnergy}~${limits.maxEnergy})로 맞췄다.`);
-          }
-          blocksPatch.energy = clampedEnergy;
-          hasBlockField = true;
-        } else {
-          warnings.push('유효하지 않은 에너지 값을 제외했다.');
-        }
-      }
-
-      if (raw.blocks.density !== undefined) {
-        if (typeof raw.blocks.density === 'number' && Number.isFinite(raw.blocks.density)) {
-          const clampedDensity = round2(clamp(raw.blocks.density, limits.minDensity, limits.maxDensity));
-          if (raw.blocks.density < limits.minDensity || raw.blocks.density > limits.maxDensity) {
-            warnings.push(`음표 밀도 값을 허용 범위(${limits.minDensity}~${limits.maxDensity})로 맞췄다.`);
-          }
-          blocksPatch.density = clampedDensity;
-          hasBlockField = true;
-        } else {
-          warnings.push('유효하지 않은 음표 밀도 값을 제외했다.');
-        }
-      }
-
-      if (hasBlockField) {
-        patch.blocks = blocksPatch;
-        hasAnyField = true;
-      }
-    }
-  }
-
   if (raw.chords !== undefined) {
     if (!Array.isArray(raw.chords)) {
-      warnings.push('코드 패치 형식이 올바르지 않아 제외했다.');
+      warnings.push('코드 비교 항목 형식이 올바르지 않아 제외했다.');
     } else {
       const byBar = new Map<number, DegreeSymbol>();
       for (const item of raw.chords) {
@@ -550,7 +394,7 @@ export function sanitizeCoachPatch(
         }
         const bar = item.bar;
         const degree = item.degree;
-        if (typeof bar !== 'number' || !Number.isInteger(bar) || bar < 1 || bar > effectiveBars) {
+        if (typeof bar !== 'number' || !Number.isInteger(bar) || bar < 1 || bar > currentBars) {
           warnings.push(`범위를 벗어난 마디 번호(${String(bar)}) 코드 변경을 제외했다.`);
           continue;
         }
@@ -560,10 +404,15 @@ export function sanitizeCoachPatch(
         }
         byBar.set(bar, degree as DegreeSymbol);
       }
-      if (byBar.size > 0) {
-        patch.chords = Array.from(byBar.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([bar, degree]) => ({ bar, degree }));
+      if (byBar.size > limits.maxDemoChords) {
+        warnings.push(`비교용 마디 코드 대안은 최대 ${limits.maxDemoChords}개까지만 허용해 나머지를 제외했다.`);
+      }
+      const limitedChords = Array.from(byBar.entries())
+        .slice(0, limits.maxDemoChords)
+        .sort((a, b) => a[0] - b[0])
+        .map(([bar, degree]) => ({ bar, degree }));
+      if (limitedChords.length > 0) {
+        patch.chords = limitedChords;
         hasAnyField = true;
       }
     }
@@ -571,7 +420,7 @@ export function sanitizeCoachPatch(
 
   if (raw.modifiers !== undefined) {
     if (!Array.isArray(raw.modifiers)) {
-      warnings.push('변형 카드 패치 형식이 올바르지 않아 제외했다.');
+      warnings.push('변형 카드 비교 항목 형식이 올바르지 않아 제외했다.');
     } else {
       const byId = new Map<ModifierId, CoachModifierPatch>();
       for (const item of raw.modifiers) {
@@ -605,19 +454,14 @@ export function sanitizeCoachPatch(
           byId.set(entry.id, entry);
         }
       }
-      if (byId.size > 0) {
-        patch.modifiers = Array.from(byId.values());
+      if (byId.size > limits.maxDemoModifiers) {
+        warnings.push(`비교용 변형 카드 대안은 최대 ${limits.maxDemoModifiers}개까지만 허용해 나머지를 제외했다.`);
+      }
+      const limitedMods = Array.from(byId.values()).slice(0, limits.maxDemoModifiers);
+      if (limitedMods.length > 0) {
+        patch.modifiers = limitedMods;
         hasAnyField = true;
       }
-    }
-  }
-
-  if (raw.unbakeMelody !== undefined) {
-    if (typeof raw.unbakeMelody === 'boolean') {
-      patch.unbakeMelody = raw.unbakeMelody;
-      hasAnyField = true;
-    } else {
-      warnings.push('unbakeMelody 값이 불리언이 아니어서 제외했다.');
     }
   }
 
@@ -656,6 +500,18 @@ export function parseCoachResponse(
       ? parsed.patchSummary.trim()
       : undefined;
 
+  let manualSteps: string[] | undefined;
+  if (Array.isArray(parsed.manualSteps)) {
+    const cleaned = parsed.manualSteps
+      .filter((step): step is string => typeof step === 'string')
+      .map((step) => step.trim())
+      .filter((step) => step.length > 0)
+      .slice(0, 4);
+    if (cleaned.length > 0) {
+      manualSteps = cleaned;
+    }
+  }
+
   const { patch, warnings } = sanitizeCoachPatch(parsed.patch, currentBars);
 
   return {
@@ -663,6 +519,7 @@ export function parseCoachResponse(
       headline,
       explanation,
       theoryTip,
+      manualSteps,
       patchSummary,
       patch,
     },
@@ -672,23 +529,6 @@ export function parseCoachResponse(
 
 export function applyCoachPatch(project: SongProject, patch: CoachPatch): SongProject {
   const next = cloneProject(project);
-
-  if (patch.keyRoot !== undefined) next.keyRoot = patch.keyRoot;
-  if (patch.mode !== undefined) next.mode = patch.mode;
-  if (patch.bpm !== undefined) next.bpm = patch.bpm;
-  if (patch.bars !== undefined) next.bars = patch.bars;
-
-  if (patch.blocks) {
-    if (patch.blocks.progressionId !== undefined) next.blocks.progressionId = patch.blocks.progressionId;
-    if (patch.blocks.grooveId !== undefined) next.blocks.grooveId = patch.blocks.grooveId;
-    if (patch.blocks.contourId !== undefined) next.blocks.contourId = patch.blocks.contourId;
-    if (patch.blocks.energy !== undefined) next.blocks.energy = patch.blocks.energy;
-    if (patch.blocks.density !== undefined) next.blocks.density = patch.blocks.density;
-  }
-
-  if (next.blocks.progressionId !== project.blocks.progressionId || next.bars !== project.bars) {
-    next.chain = unpackBlocksToChain(next.blocks, next.bars, next.chain.modifiers);
-  }
 
   if (patch.chords) {
     for (const slot of patch.chords) {
@@ -708,74 +548,24 @@ export function applyCoachPatch(project: SongProject, patch: CoachPatch): SongPr
     }
   }
 
-  const structuralBlockOrModChange =
-    patch.blocks !== undefined || patch.modifiers !== undefined || patch.bars !== undefined;
-  if (patch.unbakeMelody === true || (patch.unbakeMelody !== false && structuralBlockOrModChange)) {
-    next.baked = false;
-  }
-
   return next;
 }
 
 export function describeCoachPatch(before: SongProject, after: SongProject, patch: CoachPatch): string[] {
   const lines: string[] = [];
-  const progMap = new Map(PRESETS.progressions.map((p) => [p.id, p.nameKo]));
-  const grooveMap = new Map(PRESETS.grooves.map((g) => [g.id, g.nameKo]));
-  const contourMap = new Map(PRESETS.contours.map((c) => [c.id, c.nameKo]));
   const modMap = new Map(PRESETS.modifiers.map((m) => [m.id, m.nameKo]));
 
-  if (before.keyRoot !== after.keyRoot || before.mode !== after.mode) {
-    const modeKo = after.mode === 'major' ? '장조' : '단조';
-    const rootName = `${NOTE_NAMES_SHARP[after.keyRoot] ?? 'C'}(${KOREAN_SOLFEGE[after.keyRoot] ?? '도'})`;
-    lines.push(`키/조성: ${rootName} ${modeKo}`);
-  }
-
-  if (before.bars !== after.bars) {
-    lines.push(`곡 길이: ${before.bars}마디 → ${after.bars}마디`);
-  }
-
-  if (before.bpm !== after.bpm) {
-    lines.push(`빠르기(BPM): ${before.bpm} → ${after.bpm}`);
-  }
-
-  if (before.blocks.progressionId !== after.blocks.progressionId) {
-    lines.push(
-      `코드 진행: ${progMap.get(before.blocks.progressionId) ?? before.blocks.progressionId} → ${progMap.get(after.blocks.progressionId) ?? after.blocks.progressionId}`
-    );
-  }
-
-  if (before.blocks.grooveId !== after.blocks.grooveId) {
-    lines.push(
-      `리듬 그루브: ${grooveMap.get(before.blocks.grooveId) ?? before.blocks.grooveId} → ${grooveMap.get(after.blocks.grooveId) ?? after.blocks.grooveId}`
-    );
-  }
-
-  if (before.blocks.contourId !== after.blocks.contourId) {
-    lines.push(
-      `선율 윤곽: ${contourMap.get(before.blocks.contourId) ?? before.blocks.contourId} → ${contourMap.get(after.blocks.contourId) ?? after.blocks.contourId}`
-    );
-  }
-
-  if (Math.abs(before.blocks.energy - after.blocks.energy) >= 0.01) {
-    lines.push(`에너지: ${Math.round(before.blocks.energy * 100)}% → ${Math.round(after.blocks.energy * 100)}%`);
-  }
-
-  if (Math.abs(before.blocks.density - after.blocks.density) >= 0.01) {
-    lines.push(`음표 밀도: ${Math.round(before.blocks.density * 100)}% → ${Math.round(after.blocks.density * 100)}%`);
-  }
-
+  const requestedBars = new Set((patch.chords ?? []).map((c) => c.bar - 1));
   const changedBars: string[] = [];
-  const requestedChordBars = new Set((patch.chords ?? []).map((c) => c.bar - 1));
-  const progressionChanged = before.blocks.progressionId !== after.blocks.progressionId;
   for (let i = 0; i < after.chain.chords.length; i++) {
     const prevDeg = before.chain.chords[i]?.degree;
     const nextDeg = after.chain.chords[i].degree;
-    if (prevDeg !== nextDeg && (!progressionChanged || requestedChordBars.has(i))) {
+    if (prevDeg !== nextDeg && (requestedBars.size === 0 || requestedBars.has(i))) {
       changedBars.push(`${i + 1}마디 ${prevDeg ?? '-'}→${nextDeg}`);
     }
   }
   if (changedBars.length > 0) {
-    lines.push(`마디 코드: ${changedBars.join(', ')}`);
+    lines.push(`마디 코드 예시: ${changedBars.join(', ')}`);
   }
 
   for (const afterMod of after.chain.modifiers) {
@@ -786,17 +576,13 @@ export function describeCoachPatch(before: SongProject, after: SongProject, patc
     const amountChanged = Math.abs(beforeMod.amount - afterMod.amount) >= 0.01;
     if (enabledChanged) {
       lines.push(
-        `변형 카드 [${modName}]: ${afterMod.enabled ? `켜기 (${Math.round(afterMod.amount * 100)}%)` : '끄기'}`
+        `변형 카드 예시 [${modName}]: ${afterMod.enabled ? `켜기 (${Math.round(afterMod.amount * 100)}%)` : '끄기'}`
       );
     } else if (amountChanged) {
       lines.push(
-        `변형 카드 [${modName}] 강도: ${Math.round(beforeMod.amount * 100)}% → ${Math.round(afterMod.amount * 100)}%`
+        `변형 카드 예시 [${modName}] 강도: ${Math.round(beforeMod.amount * 100)}% → ${Math.round(afterMod.amount * 100)}%`
       );
     }
-  }
-
-  if (before.baked && !after.baked) {
-    lines.push('멜로디: 고정 음표를 풀고 새 블록·변형에 맞춰 다시 생성');
   }
 
   return lines;

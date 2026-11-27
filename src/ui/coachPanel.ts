@@ -6,11 +6,11 @@ export interface GeminiCoachSuggestion {
   headline: string;
   explanation: string;
   theoryTip?: string;
+  manualSteps: string[];
   patchSummary?: string;
   changeDescriptions: string[];
   warnings: string[];
-  patchedProject?: SongProject;
-  applied: boolean;
+  demoProject?: SongProject;
 }
 
 export interface GeminiCoachUiState {
@@ -36,7 +36,7 @@ export interface CoachCallbacks {
   onSubmitPrompt: (prompt: string) => void;
   onCancelGemini: () => void;
   onPreviewGeminiPatch: (after: boolean) => void;
-  onApplyGeminiPatch: () => void;
+  onOpenManualEditLayer: () => void;
   onDismissGeminiSuggestion: () => void;
 }
 
@@ -105,7 +105,7 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
     : '';
 
   const loadingHtml = gemini.loading
-    ? `<div class="gemini-loading">Gemini 코치가 곡과 이론 리포트를 분석하고 있습니다...</div>`
+    ? `<div class="gemini-loading">Gemini 튜터가 곡과 이론 리포트를 살펴보고 있습니다...</div>`
     : '';
 
   let resultHtml = '';
@@ -115,8 +115,20 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
       ? `<div class="gemini-tip"><strong>이론 한 줄 팁:</strong> ${escapeHtml(s.theoryTip)}</div>`
       : '';
 
-    const hasPatch = Boolean(s.patchedProject && s.changeDescriptions.length > 0);
-    const patchHtml = hasPatch
+    const manualHtml =
+      s.manualSteps.length > 0
+        ? `
+          <div class="gemini-manual-box">
+            <strong>직접 해보기</strong>
+            <ol class="gemini-manual-list">
+              ${s.manualSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+            </ol>
+          </div>
+        `
+        : '';
+
+    const hasDemo = Boolean(s.demoProject && s.changeDescriptions.length > 0);
+    const demoHtml = hasDemo
       ? `
         <div class="gemini-patch-box">
           ${s.patchSummary ? `<div class="gemini-patch-summary">${escapeHtml(s.patchSummary)}</div>` : ''}
@@ -128,17 +140,13 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
               class="btn btn-chip${gemini.activePreview === 'before' ? ' active' : ''}"
               data-gemini-preview="before"
               type="button"
-            >▶ 원본 듣기</button>
+            >▶ 내 곡 듣기</button>
             <button
               class="btn btn-chip${gemini.activePreview === 'after' ? ' active' : ''}"
               data-gemini-preview="after"
               type="button"
-            >▶ 수정안 듣기</button>
-            ${
-              s.applied
-                ? `<span class="gemini-applied-badge">적용 완료 (Ctrl+Z 되돌리기)</span>`
-                : `<button class="btn btn-chip btn-primary" id="btn-gemini-apply" type="button">패치 적용</button>`
-            }
+            >▶ 이론 예시 듣기</button>
+            <button class="btn btn-chip" id="btn-gemini-open-l2" type="button">L2에서 직접 바꾸기</button>
           </div>
         </div>
       `
@@ -157,7 +165,8 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
         </div>
         <div class="gemini-result-desc">${escapeHtml(s.explanation)}</div>
         ${tipHtml}
-        ${patchHtml}
+        ${manualHtml}
+        ${demoHtml}
         ${warningsHtml}
       </div>
     `;
@@ -167,7 +176,7 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
     <div class="gemini-coach-card">
       <div class="gemini-header">
         <div class="gemini-title-wrap">
-          <strong>Gemini 작곡 코치</strong>
+          <strong>Gemini 이론 튜터</strong>
           <span class="gemini-status ${gemini.hasApiKey ? 'connected' : 'missing'}">
             ${gemini.hasApiKey ? '연결됨' : '키 필요'}
           </span>
@@ -176,6 +185,7 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
           ${gemini.settingsOpen ? '설정 닫기' : '설정'}
         </button>
       </div>
+      <div class="gemini-policy-note">내 곡은 직접 바꾸지 않고, 이론 설명과 비교 듣기만 제공합니다.</div>
       ${settingsHtml}
       <div class="gemini-explain-row">
         <button class="btn btn-chip" id="btn-gemini-explain" type="button"${gemini.loading ? ' disabled' : ''}>
@@ -188,14 +198,14 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
           id="gemini-prompt-input"
           rows="2"
           maxlength="${COACH_CONFIG.limits.maxPromptLength}"
-          placeholder="예: 3~4마디를 더 쓸쓸하게 바꿔 줘"
+          placeholder="예: 왜 2마디가 어색하게 들려? / 4마디를 여운 있게 만드는 이론 알려 줘"
           ${gemini.loading ? 'disabled' : ''}
         >${escapeHtml(gemini.promptDraft)}</textarea>
         <div class="gemini-submit-row">
           ${
             gemini.loading
               ? `<button class="btn btn-chip" id="btn-gemini-cancel" type="button">취소</button>`
-              : `<button class="btn btn-chip btn-primary" id="btn-gemini-submit" type="button">요청 보내기</button>`
+              : `<button class="btn btn-chip btn-primary" id="btn-gemini-submit" type="button">질문하기</button>`
           }
         </div>
       </div>
@@ -310,8 +320,8 @@ export function renderCoachPanel(
     });
   });
 
-  container.querySelector('#btn-gemini-apply')?.addEventListener('click', () => {
-    callbacks.onApplyGeminiPatch();
+  container.querySelector('#btn-gemini-open-l2')?.addEventListener('click', () => {
+    callbacks.onOpenManualEditLayer();
   });
 
   container.querySelector('#btn-gemini-dismiss')?.addEventListener('click', () => {

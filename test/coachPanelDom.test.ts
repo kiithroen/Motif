@@ -18,7 +18,7 @@ function makeCallbacks(): CoachCallbacks {
     onSubmitPrompt: vi.fn(),
     onCancelGemini: vi.fn(),
     onPreviewGeminiPatch: vi.fn(),
-    onApplyGeminiPatch: vi.fn(),
+    onOpenManualEditLayer: vi.fn(),
     onDismissGeminiSuggestion: vi.fn(),
   };
 }
@@ -38,7 +38,7 @@ function makeUiState(overrides: Partial<GeminiCoachUiState> = {}): GeminiCoachUi
   };
 }
 
-describe('coachPanel DOM interactions and Gemini UI', () => {
+describe('coachPanel DOM interactions and read-only Gemini tutor UI', () => {
   let container: HTMLElement;
 
   beforeEach(() => {
@@ -60,6 +60,7 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
     );
 
     expect(container.querySelector('.gemini-status')?.textContent?.trim()).toBe('키 필요');
+    expect(container.querySelector('.gemini-policy-note')?.textContent).toContain('직접 바꾸지 않고');
 
     const keyInput = container.querySelector<HTMLInputElement>('#gemini-api-key-input')!;
     const modelSel = container.querySelector<HTMLSelectElement>('#gemini-model-select')!;
@@ -70,7 +71,7 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
     expect(callbacks.onSaveGeminiSettings).toHaveBeenCalledWith('AIzaTestKey1234', nextModel);
   });
 
-  it('triggers quick prompt chips, explain button, and natural language submission', () => {
+  it('triggers quick prompt chips, explain button, and natural language question submission', () => {
     const project = createDefaultProject();
     const report = analyzeSong(compileSong(project), project);
     const callbacks = makeCallbacks();
@@ -92,18 +93,18 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
     expect(callbacks.onSubmitPrompt).toHaveBeenCalledWith(firstQuick.prompt);
 
     const textarea = container.querySelector<HTMLTextAreaElement>('#gemini-prompt-input')!;
-    textarea.value = '후반부를 밝게 바꿔 줘';
+    textarea.value = '왜 2마디가 어색하게 들려?';
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(callbacks.onPromptChange).toHaveBeenCalledWith('후반부를 밝게 바꿔 줘');
+    expect(callbacks.onPromptChange).toHaveBeenCalledWith('왜 2마디가 어색하게 들려?');
 
     container.querySelector<HTMLButtonElement>('#btn-gemini-submit')!.click();
-    expect(callbacks.onSubmitPrompt).toHaveBeenCalledWith('후반부를 밝게 바꿔 줘');
+    expect(callbacks.onSubmitPrompt).toHaveBeenCalledWith('왜 2마디가 어색하게 들려?');
   });
 
-  it('renders suggestion card with Before/After preview, apply, dismiss, and escapes HTML', () => {
+  it('renders manualSteps and comparison preview without any auto-apply button, escaping HTML', () => {
     const project = createDefaultProject();
-    const patched = createDefaultProject();
-    patched.bpm = 82;
+    const demo = createDefaultProject();
+    demo.chain.chords[3].degree = 'iv';
     const report = analyzeSong(compileSong(project), project);
     const callbacks = makeCallbacks();
 
@@ -115,14 +116,14 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
         maskedKey: 'AIza...1234',
         activePreview: 'after',
         suggestion: {
-          headline: '<script>alert(1)</script>부드러운 편곡',
-          explanation: '<b>차분한</b> 느낌으로 템포를 낮췄습니다.',
-          theoryTip: 'BPM을 낮추면 여백이 들립니다.',
-          patchSummary: '템포 조절',
-          changeDescriptions: ['빠르기(BPM): 96 → 82'],
+          headline: '<script>alert(1)</script>4마디 모달 인터체인지',
+          explanation: '<b>IV를 iv로</b> 바꾸면 여운이 살아납니다.',
+          theoryTip: '같은 뿌리 단조 화음 차용 기법입니다.',
+          manualSteps: ['L2 변형 체인에서 4마디를 iv로 직접 바꿔 보세요.'],
+          patchSummary: '4마디 IV → iv 비교 예시',
+          changeDescriptions: ['마디 코드 예시: 4마디 IV→iv'],
           warnings: [],
-          patchedProject: patched,
-          applied: false,
+          demoProject: demo,
         },
       }),
       callbacks
@@ -130,6 +131,8 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
 
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('.gemini-result-head strong')?.textContent).toContain('<script>alert(1)</script>');
+    expect(container.querySelector('#btn-gemini-apply')).toBeNull();
+    expect(container.querySelectorAll('.gemini-manual-list li').length).toBe(1);
 
     const beforeBtn = container.querySelector<HTMLButtonElement>('[data-gemini-preview="before"]')!;
     const afterBtn = container.querySelector<HTMLButtonElement>('[data-gemini-preview="after"]')!;
@@ -140,8 +143,8 @@ describe('coachPanel DOM interactions and Gemini UI', () => {
     expect(callbacks.onPreviewGeminiPatch).toHaveBeenNthCalledWith(1, false);
     expect(callbacks.onPreviewGeminiPatch).toHaveBeenNthCalledWith(2, true);
 
-    container.querySelector<HTMLButtonElement>('#btn-gemini-apply')!.click();
-    expect(callbacks.onApplyGeminiPatch).toHaveBeenCalledTimes(1);
+    container.querySelector<HTMLButtonElement>('#btn-gemini-open-l2')!.click();
+    expect(callbacks.onOpenManualEditLayer).toHaveBeenCalledTimes(1);
 
     container.querySelector<HTMLButtonElement>('#btn-gemini-dismiss')!.click();
     expect(callbacks.onDismissGeminiSuggestion).toHaveBeenCalledTimes(1);

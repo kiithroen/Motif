@@ -409,19 +409,12 @@ function init(): void {
     loadWorkspaceProject(freeProject);
   }
 
-  function updateState(
-    next: SongProject,
-    recompileAudioOnly = false,
-    recordHistory = true,
-    skipProgressionUnpack = false,
-    preserveSuggestion = false
-  ): void {
+  function updateState(next: SongProject, recompileAudioOnly = false, recordHistory = true): void {
     const prev = project;
     const tabOnly = isTabOnlyChange(prev, next);
 
     // L1 블록의 progressionId 변경 시 L2 코드 슬롯도 동기화한다.
     if (
-      !skipProgressionUnpack &&
       appMode !== 'basics' &&
       (next.blocks.progressionId !== project.blocks.progressionId || next.bars !== project.bars)
     ) {
@@ -438,7 +431,7 @@ function init(): void {
       history.push(prev);
     }
 
-    if (!tabOnly && !recompileAudioOnly && !preserveSuggestion) {
+    if (!tabOnly && !recompileAudioOnly) {
       geminiUiState.suggestion = null;
       geminiUiState.activePreview = null;
     }
@@ -933,13 +926,13 @@ function init(): void {
 
       if (geminiAbort !== controller) return;
 
-      let patchedProject: SongProject | undefined;
+      let demoProject: SongProject | undefined;
       let changeDescriptions: string[] = [];
       if (res.response.patch) {
         const candidate = applyCoachPatch(baseSnapshot, res.response.patch);
         changeDescriptions = describeCoachPatch(baseSnapshot, candidate, res.response.patch);
         if (changeDescriptions.length > 0) {
-          patchedProject = candidate;
+          demoProject = candidate;
         }
       }
 
@@ -947,11 +940,11 @@ function init(): void {
         headline: res.response.headline,
         explanation: res.response.explanation,
         theoryTip: res.response.theoryTip,
+        manualSteps: res.response.manualSteps ?? [],
         patchSummary: res.response.patchSummary,
         changeDescriptions,
         warnings: res.warnings,
-        patchedProject,
-        applied: false,
+        demoProject,
       };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -1021,13 +1014,13 @@ function init(): void {
       },
       onPreviewGeminiPatch: (after) => {
         const sug = geminiUiState.suggestion;
-        if (!sug?.patchedProject) return;
+        if (!sug?.demoProject) return;
         if (after) {
-          const previewCompiled = compileSong(sug.patchedProject, chordView);
+          const previewCompiled = compileSong(sug.demoProject, chordView);
           geminiUiState.activePreview = 'after';
           transport.playOncePreview(
             previewCompiled,
-            sug.patchedProject.bpm,
+            project.bpm,
             project.melodyInstrument,
             mutes,
             chordView
@@ -1041,23 +1034,11 @@ function init(): void {
           btn.classList.toggle('active', btn.dataset.geminiPreview === geminiUiState.activePreview);
         });
       },
-      onApplyGeminiPatch: () => {
-        const sug = geminiUiState.suggestion;
-        if (!sug?.patchedProject || sug.applied) return;
-        const patched = cloneProject(sug.patchedProject);
-        const chordsChanged = JSON.stringify(patched.chain.chords) !== JSON.stringify(project.chain.chords);
-        const modsChanged = JSON.stringify(patched.chain.modifiers) !== JSON.stringify(project.chain.modifiers);
-        const blocksChanged = JSON.stringify(patched.blocks) !== JSON.stringify(project.blocks);
-        if (chordsChanged || modsChanged) {
-          patched.activeLayer = 'L2';
-        } else if (blocksChanged) {
-          patched.activeLayer = 'L1';
-        } else if (!patched.baked && patched.activeLayer === 'L3') {
-          patched.activeLayer = 'L2';
-        }
-        sug.applied = true;
-        geminiUiState.activePreview = null;
-        updateState(patched, false, true, true, true);
+      onOpenManualEditLayer: () => {
+        if (project.activeLayer === 'L2') return;
+        const next = cloneProject(project);
+        next.activeLayer = 'L2';
+        updateState(next);
       },
       onDismissGeminiSuggestion: () => {
         geminiUiState.suggestion = null;
