@@ -70,13 +70,13 @@ function renderMiniSvgContent(
   const vbW = compiled.totalSteps * stepW;
   const headerH = 18;
   const drumStripH = 10;
-  const bodyH = 112;
+  const bodyH = 224;
   const vbH = headerH + bodyH + drumStripH;
   const barW = 16 * stepW;
 
   const { minMidi, maxMidi } = computePitchBounds(compiled, opts.visualDiff, opts.coachCompare);
   const pitchSpan = Math.max(1, maxMidi - minMidi + 1);
-  const noteH = Math.max(2.5, Math.min(6, bodyH / pitchSpan));
+  const noteH = Math.max(4, Math.min(11, bodyH / pitchSpan));
   const midiToY = (midi: number): number => {
     const ratio = (maxMidi - midi) / pitchSpan;
     return headerH + ratio * (bodyH - noteH);
