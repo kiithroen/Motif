@@ -1,5 +1,5 @@
 import { CacheStorage, DrumMachine, Soundfont, SplendidGrandPiano } from 'smplr';
-import type { ChordInstrument, DrumKind } from '../core/model';
+import { type ChordInstrument, type DrumKind, PRESETS } from '../core/model';
 
 export type SampleLoadStatus = 'idle' | 'loading' | 'ready' | 'fallback';
 
@@ -125,6 +125,7 @@ export class MotifAudioEngine {
   private guitarBus: AudioNode | null = null;
   private bassBus: AudioNode | null = null;
   private drumBus: AudioNode | null = null;
+  private metronomeBus: AudioNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
 
   private samplers: SamplerBundle | null = null;
@@ -236,11 +237,16 @@ export class MotifAudioEngine {
       drumGain.gain.value = 1.45;
       drumGain.connect(comp);
 
+      const metronomeGain = ctx.createGain();
+      metronomeGain.gain.value = 0.85;
+      metronomeGain.connect(comp);
+
       this.master = master;
       this.pianoBus = pianoGain;
       this.guitarBus = guitarLowCut;
       this.bassBus = bassPresence;
       this.drumBus = drumGain;
+      this.metronomeBus = metronomeGain;
       this.noiseBuf = this.buildNoiseBuffer(ctx);
 
       this.initSamplers(ctx, {
@@ -446,6 +452,33 @@ export class MotifAudioEngine {
       }
     }
     this.playFallbackDrum(ctx, kind, t0, velocity);
+  }
+
+  public playMetronome(accent: boolean, when: number): void {
+    const ctx = this.ensureContext();
+    if (!this.metronomeBus) return;
+    const t0 = Math.max(ctx.currentTime, when);
+    const { accentFreqHz, beatFreqHz, durationSec, accentVelocity, beatVelocity } =
+      PRESETS.playback.metronome;
+    const freq = accent ? accentFreqHz : beatFreqHz;
+    const peak = accent ? accentVelocity : beatVelocity;
+
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(120, freq * 0.72), t0 + durationSec);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(peak, t0 + 0.002);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + durationSec);
+
+    osc.connect(env);
+    env.connect(this.metronomeBus);
+
+    this.registerFallbackVoice([osc], [env]);
+    osc.start(t0);
+    osc.stop(t0 + durationSec + 0.01);
   }
 
   private playFallbackPiano(

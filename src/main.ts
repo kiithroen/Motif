@@ -32,9 +32,24 @@ import {
   type ModifierId,
   PRESETS,
   type SongProject,
+  type TrackKey,
+  type TrackVolumes,
   cloneProject,
   createDefaultProject,
 } from './core/model';
+import {
+  type LoopBarRange,
+  type MetronomeState,
+  applyDrumMuteToMetronome,
+  clampLoopRangeOnBarResize,
+  clampTrackVolume,
+  createDefaultMetronomeState,
+  createDefaultTrackMutes,
+  createDefaultTrackVolumes,
+  normalizeLoopRange,
+  sanitizeTrackVolumes,
+  toggleMetronomeManual,
+} from './core/playbackControl';
 import { KOREAN_SOLFEGE, NOTE_NAMES_SHARP, type ScaleMode } from './core/theory';
 import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from './ui/basicsView';
 import { type GeminiCoachUiState, renderCoachPanel } from './ui/coachPanel';
@@ -47,6 +62,7 @@ const LESSON_STORAGE_KEY = 'motif_lessons_v1';
 const BASICS_STORAGE_KEY = 'motif_basics_v1';
 const MODE_STORAGE_KEY = 'motif_mode_v1';
 const CHORD_VIEW_STORAGE_KEY = 'motif_chord_view_v1';
+const MIXER_VOLUMES_STORAGE_KEY = 'motif_mixer_volumes_v1';
 
 type AppMode = 'basics' | 'lesson' | 'free';
 
@@ -102,6 +118,26 @@ function loadInitialChordView(): ChordInstrument {
 function saveChordView(view: ChordInstrument): void {
   try {
     localStorage.setItem(CHORD_VIEW_STORAGE_KEY, view);
+  } catch {
+    // 저장 불가 환경은 건너뛴다.
+  }
+}
+
+function loadTrackVolumes(): TrackVolumes {
+  try {
+    const raw = localStorage.getItem(MIXER_VOLUMES_STORAGE_KEY);
+    if (raw) {
+      return sanitizeTrackVolumes(JSON.parse(raw) as Partial<Record<TrackKey, unknown>>);
+    }
+  } catch {
+    // 저장 데이터 파싱 실패 시 기본 볼륨으로 시작한다.
+  }
+  return createDefaultTrackVolumes();
+}
+
+function saveTrackVolumes(volumes: TrackVolumes): void {
+  try {
+    localStorage.setItem(MIXER_VOLUMES_STORAGE_KEY, JSON.stringify(volumes));
   } catch {
     // 저장 불가 환경은 건너뛴다.
   }
@@ -199,7 +235,11 @@ function init(): void {
   let activeStep = -1;
   let selectedDuration = PRESETS.noteDurationOptions[0]?.steps ?? 2;
   const history = new ProjectHistory();
-  const mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
+  const mutes: TrackMuteState = createDefaultTrackMutes();
+  let volumes: TrackVolumes = loadTrackVolumes();
+  let metronome: MetronomeState = createDefaultMetronomeState();
+  let mixerOpen = false;
+  let loopRange: LoopBarRange | null = null;
 
   let geminiSettings = loadGeminiSettings();
   let geminiAbort: AbortController | null = null;
@@ -240,6 +280,8 @@ function init(): void {
       }
     },
   });
+  transport.setTrackVolumes(volumes);
+  transport.setMetronome(metronome.enabled);
 
   root.innerHTML = `
     <div class="app-shell">
@@ -323,9 +365,11 @@ function init(): void {
     geminiUiState.activePreview = null;
     history.clear();
     activeStep = -1;
+    loopRange = null;
+    transport.setLoopRange(null);
     project = cloneProject(target);
     compiled = compileSong(project, chordView);
-    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     renderAll();
   }
 
@@ -446,13 +490,18 @@ function init(): void {
       geminiUiState.activePreview = null;
     }
 
+    if (next.bars !== project.bars) {
+      loopRange = clampLoopRangeOnBarResize(loopRange, next.bars);
+      transport.setLoopRange(loopRange);
+    }
+
     project = resolvedNext;
     compiled = compileSong(project, chordView);
     if (appMode === 'free') {
       freeProject = cloneProject(project);
       saveProject(freeProject);
     }
-    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     if (!recompileAudioOnly) {
       renderAll();
     } else if (appMode === 'lesson') {
@@ -487,8 +536,42 @@ function init(): void {
     chordView = nextView;
     saveChordView(chordView);
     compiled = compileSong(project, chordView);
-    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
     renderAll();
+  }
+
+  function toggleTrackMute(key: TrackKey): void {
+    mutes[key] = !mutes[key];
+    if (key === 'drums') {
+      metronome = applyDrumMuteToMetronome(metronome, mutes.drums);
+      transport.setMetronome(metronome.enabled);
+    }
+    transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
+    renderTopControls();
+  }
+
+  function toggleMetronome(): void {
+    metronome = toggleMetronomeManual(metronome);
+    transport.setMetronome(metronome.enabled);
+    renderTopControls();
+  }
+
+  function seekToBar(barIdx: number): void {
+    transport.seekToBar(barIdx);
+    renderTopControls();
+    if (appMode === 'basics') {
+      updateBasicsPlayButton(basicsRootEl, transport.isPlaying());
+    }
+  }
+
+  function setLoopRange(nextRange: LoopBarRange | null): void {
+    loopRange = normalizeLoopRange(nextRange, project.bars);
+    transport.setLoopRange(loopRange);
+    if (appMode === 'basics') {
+      renderBasicsMode();
+    } else {
+      renderDynamicParts();
+    }
   }
 
   function renderTopControls(): void {
@@ -546,6 +629,56 @@ function init(): void {
         `<option value="${idx}"${idx === project.keyRoot ? ' selected' : ''}>${n} (${KOREAN_SOLFEGE[idx]})</option>`
     ).join('');
 
+    const mixerTracks: Array<{ key: TrackKey; label: string }> = [
+      { key: 'melody', label: '멜로디' },
+      { key: 'chords', label: '코드' },
+      { key: 'bass', label: '베이스' },
+      { key: 'drums', label: '드럼' },
+    ];
+    const { min: mixMin, max: mixMax, step: mixStep } = PRESETS.playback.mixer;
+    const metronomeLabel = metronome.enabled
+      ? metronome.autoActivated
+        ? '메트로놈 (자동)'
+        : '메트로놈 켜짐'
+      : '메트로놈';
+
+    const mixerPanelHtml = mixerOpen
+      ? `
+        <div class="topbar-mixer" id="topbar-mixer">
+          <div class="mixer-grid">
+            ${mixerTracks
+              .map(
+                (t) => `
+                  <div class="mixer-channel${mutes[t.key] ? ' muted' : ''}" data-mix-channel="${t.key}">
+                    <div class="mixer-channel-head">
+                      <span>${t.label}</span>
+                      <div class="controls-row" style="gap:4px;">
+                        <strong id="mix-val-${t.key}">${Math.round(volumes[t.key] * 100)}%</strong>
+                        <button class="btn btn-chip${mutes[t.key] ? ' muted' : ''}" data-mix-mute="${t.key}" type="button">${mutes[t.key] ? '음소거됨' : '음소거'}</button>
+                      </div>
+                    </div>
+                    <input
+                      class="sl-mix"
+                      data-mix-track="${t.key}"
+                      type="range"
+                      min="${mixMin}"
+                      max="${mixMax}"
+                      step="${mixStep}"
+                      value="${volumes[t.key]}"
+                    />
+                  </div>
+                `
+              )
+              .join('')}
+          </div>
+          <div class="mixer-footer">
+            <span>드럼을 음소거하면 박자 기준을 유지하도록 메트로놈이 자동으로 켜진다.</span>
+            <button class="btn btn-chip" id="btn-mixer-reset" type="button">믹서 초기화</button>
+          </div>
+        </div>
+      `
+      : '';
+
     topbarEl.innerHTML = `
       <div class="topbar-main">
         <div class="brand">
@@ -592,11 +725,14 @@ function init(): void {
         <button class="btn btn-chip${mutes.chords ? ' muted' : ''}" data-mute="chords" type="button">코드</button>
         <button class="btn btn-chip${mutes.bass ? ' muted' : ''}" data-mute="bass" type="button">베이스</button>
         <button class="btn btn-chip${mutes.drums ? ' muted' : ''}" data-mute="drums" type="button">드럼</button>
+        <button class="btn btn-chip${metronome.enabled ? ' active' : ''}" id="btn-metronome" type="button" title="드럼 음소거 시 자동으로 켜지며 수동으로도 전환할 수 있다">${metronomeLabel}</button>
+        <button class="btn btn-chip${mixerOpen ? ' active' : ''}" id="btn-mixer-toggle" type="button" title="트랙별 볼륨 믹서 열기/닫기">믹서</button>
         <button class="btn" id="btn-undo" type="button" title="되돌리기 (Ctrl+Z)"${history.canUndo() ? '' : ' disabled'}>↩ 되돌리기</button>
         <button class="btn" id="btn-redo" type="button" title="다시 실행 (Ctrl+Y)"${history.canRedo() ? '' : ' disabled'}>↪ 다시 실행</button>
         <button class="btn" id="btn-seed" type="button" title="랜덤 초안 다시 뽑기">랜덤 초안</button>
         <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
+      ${mixerPanelHtml}
     `;
 
     updateAudioBadge(audio.getSampleStatus());
@@ -663,11 +799,57 @@ function init(): void {
 
     topbarEl.querySelectorAll<HTMLButtonElement>('[data-mute]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const key = btn.dataset.mute as keyof TrackMuteState;
-        mutes[key] = !mutes[key];
-        transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView);
-        renderTopControls();
+        toggleTrackMute(btn.dataset.mute as TrackKey);
       });
+    });
+
+    topbarEl.querySelectorAll<HTMLButtonElement>('[data-mix-mute]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        toggleTrackMute(btn.dataset.mixMute as TrackKey);
+      });
+    });
+
+    topbarEl.querySelector('#btn-metronome')?.addEventListener('click', () => {
+      toggleMetronome();
+    });
+
+    topbarEl.querySelector('#btn-mixer-toggle')?.addEventListener('click', () => {
+      mixerOpen = !mixerOpen;
+      renderTopControls();
+    });
+
+    topbarEl.querySelectorAll<HTMLInputElement>('.sl-mix').forEach((sl) => {
+      const track = sl.dataset.mixTrack as TrackKey;
+      sl.addEventListener('input', () => {
+        volumes = {
+          ...volumes,
+          [track]: clampTrackVolume(Number(sl.value)),
+        };
+        const valEl = topbarEl.querySelector(`#mix-val-${track}`);
+        if (valEl) valEl.textContent = `${Math.round(volumes[track] * 100)}%`;
+        transport.setTrackVolumes(volumes);
+      });
+      sl.addEventListener('change', () => {
+        volumes = {
+          ...volumes,
+          [track]: clampTrackVolume(Number(sl.value)),
+        };
+        transport.setTrackVolumes(volumes);
+        saveTrackVolumes(volumes);
+      });
+    });
+
+    topbarEl.querySelector('#btn-mixer-reset')?.addEventListener('click', () => {
+      volumes = createDefaultTrackVolumes();
+      mutes.melody = false;
+      mutes.chords = false;
+      mutes.bass = false;
+      mutes.drums = false;
+      metronome = applyDrumMuteToMetronome(metronome, false);
+      saveTrackVolumes(volumes);
+      transport.setMetronome(metronome.enabled);
+      transport.updateSong(compiled, project.bpm, project.melodyInstrument, mutes, chordView, volumes);
+      renderTopControls();
     });
 
     topbarEl.querySelector('#btn-undo')?.addEventListener('click', () => {
@@ -718,12 +900,15 @@ function init(): void {
 
     renderLayerEditor(mainEl, project, compiled, activeStep, {
       selectedDuration,
+      loopRange,
       onSelectDuration: (steps) => {
         selectedDuration = steps;
         renderDynamicParts();
       },
       onProjectChange: (next, options) => updateState(next, options),
       onAuditionPitch: auditionPitch,
+      onSeekBar: seekToBar,
+      onLoopRangeChange: setLoopRange,
       onPreviewModifier: (modId: ModifierId, after: boolean) => {
         const diff = previewModifierDiff(project, modId, chordView);
         transport.playOncePreview(
@@ -832,6 +1017,7 @@ function init(): void {
         selectedDuration,
         selectedPickBar,
         chordView,
+        loopRange,
       },
       {
         onBackToMap: () => {
@@ -892,6 +1078,8 @@ function init(): void {
         onAuditionChord: (chord) => audio.auditionChord(chord.voicingMidi, chordView),
         onGoToMissions: () => switchMode('lesson'),
         onOpenInFreeSketch: () => openProjectInFreeSketch(project),
+        onSeekBar: seekToBar,
+        onLoopRangeChange: setLoopRange,
       }
     );
   }

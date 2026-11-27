@@ -8,6 +8,7 @@ import {
 } from '../core/basics';
 import type { CompiledSong } from '../core/compiler';
 import { PRESETS, type ChordInstrument, type SongProject, cloneProject } from '../core/model';
+import type { LoopBarRange } from '../core/playbackControl';
 import {
   type DegreeSymbol,
   KOREAN_SOLFEGE,
@@ -35,6 +36,7 @@ export interface BasicsViewState {
   selectedDuration: number;
   selectedPickBar: number;
   chordView: ChordInstrument;
+  loopRange?: LoopBarRange | null;
 }
 
 export interface BasicsViewCallbacks {
@@ -54,6 +56,8 @@ export interface BasicsViewCallbacks {
   onAuditionChord: (chord: ResolvedChord) => void;
   onGoToMissions: () => void;
   onOpenInFreeSketch: () => void;
+  onSeekBar?: (barIdx: number) => void;
+  onLoopRangeChange?: (range: LoopBarRange | null) => void;
 }
 
 const SOLFEGE_KEYS = [
@@ -490,9 +494,12 @@ export function renderBasicsView(
     renderFocusedPianoRoll(prMount, project, compiled, state.activeStep, {
       showDurationPicker: Boolean(lesson.showDurationPicker),
       selectedDuration: state.selectedDuration,
+      loopRange: state.loopRange,
       onSelectDuration: callbacks.onSelectDuration,
       onProjectChange: (next) => callbacks.onProjectChange(next),
       onAuditionPitch: callbacks.onAuditionPitch,
+      onSeekBar: callbacks.onSeekBar,
+      onLoopRangeChange: callbacks.onLoopRangeChange,
     });
   }
 

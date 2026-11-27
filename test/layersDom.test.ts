@@ -2,7 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compileSong } from '../src/core/compiler';
 import { type SongProject, createDefaultProject } from '../src/core/model';
-import { renderFocusedPianoRoll, renderLayerEditor } from '../src/ui/layers';
+import {
+  renderFocusedPianoRoll,
+  renderLayerEditor,
+  updatePianoRollPlayhead,
+} from '../src/ui/layers';
 
 const STEP_W = 20;
 const ROW_H = 20;
@@ -297,5 +301,82 @@ describe('L3 PianoRoll pointer interactions', () => {
     expect(modOpts.recompileAudioOnly).toBe(false);
     expect(modOpts.recordHistory).toBe(true);
     expect(modOpts.historyBase.chain.modifiers.find((m) => m.id === 'syncopation')?.enabled).toBe(false);
+  });
+
+  it('seeks on bar header click, toggles/extends loop with button, and drags loop range', () => {
+    const project = makeTestProject();
+    const compiled = compileSong(project);
+    const onSeekBar = vi.fn();
+    const onLoopRangeChange = vi.fn();
+
+    renderLayerEditor(container, project, compiled, 16, {
+      selectedDuration: 2,
+      loopRange: { startBar: 1, endBar: 2 },
+      onSelectDuration: vi.fn(),
+      onProjectChange: vi.fn(),
+      onAuditionPitch: vi.fn(),
+      onPreviewModifier: vi.fn(),
+      onSeekBar,
+      onLoopRangeChange,
+    });
+
+    const header = container.querySelector<HTMLElement>('.pr-bar-header')!;
+    header.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1280,
+        bottom: 28,
+        width: 1280,
+        height: 28,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    // 1) 초기 렌더에서 마디 1(activeStep=16) active-bar 및 루프 표시가 반영된다.
+    expect(container.querySelector('.pr-bar-cell[data-bar="1"]')?.classList.contains('active-bar')).toBe(
+      true
+    );
+    expect(container.querySelectorAll('.pr-bar-cell.in-loop').length).toBe(2);
+    expect(container.querySelector('.pr-loop-badge')?.textContent).toContain('2~3마디');
+
+    // 2) 마디 3 헤더 클릭 -> Seek
+    header.dispatchEvent(pointerEvent('pointerdown', 3 * 320 + 40, 10));
+    window.dispatchEvent(pointerEvent('pointerup', 3 * 320 + 40, 10));
+    expect(onSeekBar).toHaveBeenCalledWith(3);
+
+    // 3) 루프 버튼 Shift+클릭 -> 기존 1~2마디를 0~2마디로 확장
+    const loopBtn0 = container.querySelector<HTMLButtonElement>('[data-loop-bar="0"]')!;
+    loopBtn0.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    expect(onLoopRangeChange).toHaveBeenLastCalledWith({ startBar: 0, endBar: 2 });
+
+    // 4) 반복 해제 버튼 클릭 -> null
+    container.querySelector<HTMLButtonElement>('#btn-clear-loop')?.click();
+    expect(onLoopRangeChange).toHaveBeenLastCalledWith(null);
+
+    // 5) 마디 헤더 드래그 (bar 1 -> bar 3) -> { startBar: 1, endBar: 3 }
+    header.dispatchEvent(pointerEvent('pointerdown', 1 * 320 + 30, 10));
+    window.dispatchEvent(pointerEvent('pointermove', 3 * 320 + 30, 10));
+    expect(container.querySelectorAll('.pr-bar-cell.loop-preview').length).toBe(3);
+    window.dispatchEvent(pointerEvent('pointerup', 3 * 320 + 30, 10));
+    expect(onLoopRangeChange).toHaveBeenLastCalledWith({ startBar: 1, endBar: 3 });
+
+    // 6) Escape 로 헤더 드래그 취소 시 추가 호출이 없다.
+    const callsBeforeEsc = onLoopRangeChange.mock.calls.length;
+    header.dispatchEvent(pointerEvent('pointerdown', 0 * 320 + 30, 10));
+    window.dispatchEvent(pointerEvent('pointermove', 2 * 320 + 30, 10));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    window.dispatchEvent(pointerEvent('pointerup', 2 * 320 + 30, 10));
+    expect(onLoopRangeChange.mock.calls.length).toBe(callsBeforeEsc);
+
+    // 7) playhead 갱신 시 active-bar 도 함께 이동한다.
+    updatePianoRollPlayhead(container, 48, compiled.totalSteps);
+    expect(container.querySelector('.pr-bar-cell[data-bar="1"]')?.classList.contains('active-bar')).toBe(
+      false
+    );
+    expect(container.querySelector('.pr-bar-cell[data-bar="3"]')?.classList.contains('active-bar')).toBe(
+      true
+    );
   });
 });

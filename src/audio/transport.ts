@@ -1,13 +1,20 @@
 import type { CompiledSong } from '../core/compiler';
-import type { ChordInstrument, MelodyInstrument } from '../core/model';
+import { type ChordInstrument, type MelodyInstrument, PRESETS, type TrackVolumes } from '../core/model';
+import {
+  type LoopBarRange,
+  type TrackMuteState,
+  clampLoopRangeOnBarResize,
+  clampTrackVolume,
+  createDefaultTrackMutes,
+  createDefaultTrackVolumes,
+  isMetronomeBeat,
+  loopRangeToStepRange,
+  normalizeLoopRange,
+  scaleTrackVelocity,
+} from '../core/playbackControl';
 import { MotifAudioEngine } from './instruments';
 
-export interface TrackMuteState {
-  melody: boolean;
-  chords: boolean;
-  bass: boolean;
-  drums: boolean;
-}
+export type { LoopBarRange, TrackMuteState, TrackVolumes };
 
 export interface TransportCallbacks {
   onStep?: (step: number) => void;
@@ -21,7 +28,10 @@ export class MotifTransport {
   private bpm = 96;
   private melodyInstrument: MelodyInstrument = 'piano';
   private chordInstrument: ChordInstrument = 'piano';
-  private mutes: TrackMuteState = { melody: false, chords: false, bass: false, drums: false };
+  private mutes: TrackMuteState = createDefaultTrackMutes();
+  private volumes: TrackVolumes = createDefaultTrackVolumes();
+  private metronomeEnabled = PRESETS.playback.metronome.defaultEnabled;
+  private loopRange: LoopBarRange | null = null;
   private callbacks: TransportCallbacks;
 
   private playing = false;
@@ -48,18 +58,96 @@ export class MotifTransport {
     return this.playing;
   }
 
+  public setTrackVolumes(volumes: TrackVolumes): void {
+    this.volumes = {
+      melody: clampTrackVolume(volumes.melody),
+      chords: clampTrackVolume(volumes.chords),
+      bass: clampTrackVolume(volumes.bass),
+      drums: clampTrackVolume(volumes.drums),
+    };
+  }
+
+  public getTrackVolumes(): TrackVolumes {
+    return { ...this.volumes };
+  }
+
+  public setMetronome(enabled: boolean): void {
+    this.metronomeEnabled = enabled;
+  }
+
+  public isMetronomeEnabled(): boolean {
+    return this.metronomeEnabled;
+  }
+
+  public setLoopRange(range: LoopBarRange | null): void {
+    const totalBars = Math.floor(this.mainSong.totalSteps / 16);
+    this.loopRange = normalizeLoopRange(range, totalBars);
+
+    if (this.playing && !this.previewSong && this.loopRange) {
+      const win = loopRangeToStepRange(this.loopRange, this.mainSong.totalSteps);
+      if (this.currentStep < win.startStep || this.currentStep >= win.endStep) {
+        this.jumpMainPlaybackToStep(win.startStep);
+      }
+    }
+  }
+
+  public getLoopRange(): LoopBarRange | null {
+    return this.loopRange ? { ...this.loopRange } : null;
+  }
+
+  public seekToBar(barIdx: number): void {
+    const totalBars = Math.max(1, Math.floor(this.mainSong.totalSteps / 16));
+    const clampedBar = Math.max(0, Math.min(totalBars - 1, Math.trunc(barIdx)));
+    this.seekToStep(clampedBar * 16);
+  }
+
+  public seekToStep(step: number): void {
+    const maxStep = Math.max(0, this.mainSong.totalSteps - 1);
+    const clamped = Math.max(0, Math.min(maxStep, Math.trunc(step)));
+
+    if (this.playing && !this.previewSong) {
+      this.jumpMainPlaybackToStep(clamped);
+      return;
+    }
+
+    this.previewSong = null;
+    this.beginPlayback(true, clamped);
+    this.callbacks.onStep?.(clamped);
+  }
+
+  private jumpMainPlaybackToStep(step: number): void {
+    this.audio.stopAll?.();
+    this.stepQueue = [];
+    this.finishing = false;
+    if (this.finishTimerId !== null) {
+      globalThis.clearTimeout(this.finishTimerId);
+      this.finishTimerId = null;
+    }
+    this.currentStep = step;
+    this.nextNoteTime = this.audio.currentTime + 0.02;
+    this.callbacks.onStep?.(step);
+  }
+
   public updateSong(
     compiled: CompiledSong,
     bpm: number,
     melodyInstrument: MelodyInstrument,
     mutes: TrackMuteState,
-    chordInstrument: ChordInstrument = this.chordInstrument
+    chordInstrument: ChordInstrument = this.chordInstrument,
+    volumes?: TrackVolumes
   ): void {
     this.mainSong = compiled;
     this.bpm = Math.max(45, Math.min(200, bpm));
     this.melodyInstrument = melodyInstrument;
     this.chordInstrument = chordInstrument;
     this.mutes = { ...mutes };
+    if (volumes) {
+      this.setTrackVolumes(volumes);
+    }
+    if (this.loopRange) {
+      const totalBars = Math.floor(compiled.totalSteps / 16);
+      this.loopRange = clampLoopRangeOnBarResize(this.loopRange, totalBars);
+    }
     if (this.currentStep >= this.activeSong.totalSteps) {
       this.currentStep = 0;
     }
@@ -70,7 +158,7 @@ export class MotifTransport {
     this.beginPlayback(loop);
   }
 
-  private beginPlayback(loop: boolean): void {
+  private beginPlayback(loop: boolean, startStep?: number): void {
     const preservedPreview = this.previewSong;
     this.stop();
     this.previewSong = preservedPreview;
@@ -78,7 +166,16 @@ export class MotifTransport {
     this.playing = true;
     this.finishing = false;
     this.loop = loop;
-    this.currentStep = 0;
+
+    let initialStep = 0;
+    if (typeof startStep === 'number' && Number.isFinite(startStep)) {
+      const maxStep = Math.max(0, this.activeSong.totalSteps - 1);
+      initialStep = Math.max(0, Math.min(maxStep, Math.trunc(startStep)));
+    } else if (!this.previewSong && loop && this.loopRange) {
+      initialStep = loopRangeToStepRange(this.loopRange, this.activeSong.totalSteps).startStep;
+    }
+
+    this.currentStep = initialStep;
     this.stepQueue = [];
     this.nextNoteTime = ctx.currentTime + 0.04;
 
@@ -155,9 +252,20 @@ export class MotifTransport {
       this.stepQueue.push({ step, time: this.nextNoteTime });
 
       this.nextNoteTime += stepDur;
-      this.currentStep += 1;
+      const nextStep = this.currentStep + 1;
       if (this.loop) {
-        this.currentStep %= song.totalSteps;
+        if (!this.previewSong && this.loopRange) {
+          const win = loopRangeToStepRange(this.loopRange, song.totalSteps);
+          if ((step < win.endStep && nextStep >= win.endStep) || nextStep >= song.totalSteps) {
+            this.currentStep = win.startStep;
+          } else {
+            this.currentStep = nextStep;
+          }
+        } else {
+          this.currentStep = nextStep % song.totalSteps;
+        }
+      } else {
+        this.currentStep = nextStep;
       }
     }
   }
@@ -174,58 +282,66 @@ export class MotifTransport {
   }
 
   private scheduleStepEvents(song: CompiledSong, step: number, when: number, stepDur: number): void {
-    if (!this.mutes.chords) {
+    if (!this.mutes.chords && this.volumes.chords > 0) {
       let chordIdx = 0;
       for (const c of song.chords) {
         if (c.step === step) {
-          if (this.chordInstrument === 'guitar') {
-            this.audio.playGuitar(
-              c.midi,
-              when + chordIdx * 0.011,
-              c.duration * stepDur,
-              Math.min(1, c.velocity * 0.92),
-              0.22
-            );
-          } else {
-            this.audio.playPiano(
-              c.midi,
-              when + chordIdx * 0.006,
-              c.duration * stepDur,
-              Math.min(1, c.velocity * 0.64),
-              0.2
-            );
+          const baseScale = this.chordInstrument === 'guitar' ? 0.92 : 0.64;
+          const vel = scaleTrackVelocity(c.velocity * baseScale, this.volumes.chords);
+          if (vel > 0) {
+            if (this.chordInstrument === 'guitar') {
+              this.audio.playGuitar(c.midi, when + chordIdx * 0.011, c.duration * stepDur, vel, 0.22);
+            } else {
+              this.audio.playPiano(c.midi, when + chordIdx * 0.006, c.duration * stepDur, vel, 0.2);
+            }
           }
           chordIdx++;
         }
       }
     }
 
-    if (!this.mutes.bass) {
+    if (!this.mutes.bass && this.volumes.bass > 0) {
       for (const b of song.bass) {
         if (b.step === step) {
-          this.audio.playBass(b.midi, when, b.duration * stepDur, Math.min(1, b.velocity * 0.96));
-        }
-      }
-    }
-
-    if (!this.mutes.drums) {
-      for (const d of song.drums) {
-        if (d.step === step) {
-          this.audio.playDrum(d.kind, when, Math.min(1, d.velocity * 1.05));
-        }
-      }
-    }
-
-    if (!this.mutes.melody) {
-      for (const m of song.melody) {
-        if (m.step === step) {
-          const dur = m.duration * stepDur;
-          if (this.melodyInstrument === 'guitar') {
-            this.audio.playGuitar(m.midi, when, dur, m.velocity, 0.24);
-          } else {
-            this.audio.playPiano(m.midi, when, dur, m.velocity, 0.3);
+          const vel = scaleTrackVelocity(b.velocity * 0.96, this.volumes.bass);
+          if (vel > 0) {
+            this.audio.playBass(b.midi, when, b.duration * stepDur, vel);
           }
         }
+      }
+    }
+
+    if (!this.mutes.drums && this.volumes.drums > 0) {
+      for (const d of song.drums) {
+        if (d.step === step) {
+          const vel = scaleTrackVelocity(d.velocity * 1.05, this.volumes.drums);
+          if (vel > 0) {
+            this.audio.playDrum(d.kind, when, vel);
+          }
+        }
+      }
+    }
+
+    if (!this.mutes.melody && this.volumes.melody > 0) {
+      for (const m of song.melody) {
+        if (m.step === step) {
+          const vel = scaleTrackVelocity(m.velocity, this.volumes.melody);
+          if (vel > 0) {
+            const dur = m.duration * stepDur;
+            if (this.melodyInstrument === 'guitar') {
+              this.audio.playGuitar(m.midi, when, dur, vel, 0.24);
+            } else {
+              this.audio.playPiano(m.midi, when, dur, vel, 0.3);
+            }
+          }
+        }
+      }
+    }
+
+    if (!this.previewSong && this.metronomeEnabled) {
+      const beat = isMetronomeBeat(step);
+      if (beat.trigger) {
+        this.audio.playMetronome?.(beat.accent, when);
       }
     }
   }

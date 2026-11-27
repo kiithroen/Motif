@@ -7,6 +7,10 @@ export type MelodyInstrument = 'piano' | 'guitar';
 
 export type ChordInstrument = 'piano' | 'guitar';
 
+export type TrackKey = 'melody' | 'chords' | 'bass' | 'drums';
+
+export type TrackVolumes = Record<TrackKey, number>;
+
 export type ModifierId =
   | 'modal_borrow'
   | 'motif_repeat'
@@ -119,6 +123,24 @@ export interface NoteDurationOption {
   labelKo: string;
 }
 
+export interface PlaybackPresets {
+  mixer: {
+    min: number;
+    max: number;
+    step: number;
+    defaults: TrackVolumes;
+  };
+  metronome: {
+    defaultEnabled: boolean;
+    autoWhenDrumsMuted: boolean;
+    accentFreqHz: number;
+    beatFreqHz: number;
+    durationSec: number;
+    accentVelocity: number;
+    beatVelocity: number;
+  };
+}
+
 export interface PresetsData {
   defaults: {
     keyRoot: number;
@@ -146,6 +168,7 @@ export interface PresetsData {
     minRestRatio: number;
     maxSameDurationRatio: number;
   };
+  playback: PlaybackPresets;
 }
 
 export const PRESETS = presetsRaw as PresetsData;

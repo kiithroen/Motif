@@ -130,6 +130,67 @@ button, select, input {
   padding: 4px 8px;
 }
 
+#btn-metronome.active {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.topbar-mixer {
+  width: 100%;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mixer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.mixer-channel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mixer-channel.muted {
+  opacity: 0.65;
+}
+
+.mixer-channel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sl-mix {
+  width: 100%;
+  cursor: pointer;
+}
+
+.mixer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .brand-mark {
   width: 30px;
   height: 30px;
@@ -535,7 +596,7 @@ button, select, input {
 }
 
 .pr-keys-corner {
-  height: 24px;
+  height: 28px;
   padding: 0 6px;
   font-size: 10px;
   color: var(--muted);
@@ -551,9 +612,11 @@ button, select, input {
 
 .pr-bar-header {
   display: flex;
-  height: 24px;
+  height: 28px;
   background: var(--panel-alt);
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
 }
 
 .pr-bar-cell {
@@ -561,14 +624,123 @@ button, select, input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  gap: 6px;
+  padding: 0 6px 0 8px;
   font-size: 11px;
   color: var(--muted);
   border-right: 1px solid rgba(148, 163, 184, 0.35);
+  transition: background 0.12s, color 0.12s;
+}
+
+.pr-bar-cell:hover {
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--text);
+}
+
+.pr-bar-cell.active-bar {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--text);
+}
+
+.pr-bar-cell.in-loop {
+  background: rgba(56, 189, 248, 0.16);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.pr-bar-cell.loop-start {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.pr-bar-cell.loop-end {
+  box-shadow: inset -2px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.pr-bar-cell.loop-start.loop-end {
+  box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.pr-bar-cell.loop-preview {
+  background: rgba(56, 189, 248, 0.25);
+}
+
+.pr-bar-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.pr-bar-seek-icon {
+  font-size: 9px;
+  opacity: 0.65;
+}
+
+.pr-bar-cell:hover .pr-bar-seek-icon,
+.pr-bar-cell.active-bar .pr-bar-seek-icon {
+  opacity: 1;
+  color: var(--amber);
+}
+
+.pr-bar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .pr-bar-cell strong {
   color: var(--green);
+  white-space: nowrap;
+}
+
+.pr-bar-loop-btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pr-bar-loop-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.pr-bar-loop-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+  font-weight: 800;
+}
+
+.pr-loop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 8px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.pr-loop-dim {
+  fill: rgba(4, 9, 17, 0.56);
+}
+
+.pr-loop-bound {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
 }
 
 .pr-duration-group {

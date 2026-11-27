@@ -220,5 +220,27 @@
     "maxLargeLeapRatio": 0.35,
     "minRestRatio": 0.12,
     "maxSameDurationRatio": 0.82
+  },
+  "playback": {
+    "mixer": {
+      "min": 0,
+      "max": 1.25,
+      "step": 0.05,
+      "defaults": {
+        "melody": 1.0,
+        "chords": 0.85,
+        "bass": 0.9,
+        "drums": 0.9
+      }
+    },
+    "metronome": {
+      "defaultEnabled": false,
+      "autoWhenDrumsMuted": true,
+      "accentFreqHz": 1320,
+      "beatFreqHz": 880,
+      "durationSec": 0.032,
+      "accentVelocity": 0.72,
+      "beatVelocity": 0.45
+    }
   }
 }

@@ -6,6 +6,7 @@ import {
   type SamplerVoice,
   toMidiVelocity,
 } from '../src/audio/instruments';
+import { PRESETS } from '../src/core/model';
 
 function makeAudioParam(initial = 0) {
   return {
@@ -256,5 +257,43 @@ describe('MotifAudioEngine sampler lifecycle and fallback', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('plays metronome accent and beat clicks at preset frequencies and stops cleanly on stopAll', () => {
+    const { ctx, createdOscillators } = createMockAudioContext();
+    const voice = deferredVoice().voice;
+    const engine = new MotifAudioEngine(
+      () => ({
+        piano: voice,
+        guitar: voice,
+        bass: voice,
+        drums: voice,
+        drumMap: { kick: 'kick', snare: 'snare-m', hat: 'hhclosed-short' },
+      }),
+      () => ctx
+    );
+
+    const before = createdOscillators.length;
+    engine.playMetronome(true, 10.1);
+    engine.playMetronome(false, 10.6);
+    expect(createdOscillators.length).toBe(before + 2);
+
+    const oscCalls = (ctx.createOscillator as ReturnType<typeof vi.fn>).mock.results.map(
+      (r) => r.value as { frequency: { setValueAtTime: ReturnType<typeof vi.fn> }; stop: ReturnType<typeof vi.fn> }
+    );
+    const accentOsc = oscCalls[oscCalls.length - 2];
+    const beatOsc = oscCalls[oscCalls.length - 1];
+    expect(accentOsc.frequency.setValueAtTime).toHaveBeenCalledWith(
+      PRESETS.playback.metronome.accentFreqHz,
+      10.1
+    );
+    expect(beatOsc.frequency.setValueAtTime).toHaveBeenCalledWith(
+      PRESETS.playback.metronome.beatFreqHz,
+      10.6
+    );
+
+    engine.stopAll();
+    expect(accentOsc.stop).toHaveBeenLastCalledWith(10);
+    expect(beatOsc.stop).toHaveBeenLastCalledWith(10);
   });
 });

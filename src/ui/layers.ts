@@ -8,6 +8,12 @@ import {
   resizePianoRollNote,
 } from '../core/pianoRollOps';
 import {
+  type LoopBarRange,
+  loopRangeToStepRange,
+  normalizeLoopRange,
+  selectLoopBarRange,
+} from '../core/playbackControl';
+import {
   type HarmonicRole,
   KOREAN_SOLFEGE,
   classifyPitch,
@@ -26,10 +32,13 @@ export interface ProjectChangeOptions {
 
 export interface LayerCallbacks {
   selectedDuration: number;
+  loopRange?: LoopBarRange | null;
   onSelectDuration: (steps: number) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
   onPreviewModifier: (modifierId: ModifierId, after: boolean) => void;
+  onSeekBar?: (barIdx: number) => void;
+  onLoopRangeChange?: (range: LoopBarRange | null) => void;
 }
 
 const PR_MIN_MIDI = 60; // C4
@@ -56,9 +65,14 @@ export function computeFollowScrollLeft(
 }
 
 export function updatePianoRollPlayhead(container: HTMLElement, activeStep: number, totalSteps: number): void {
+  const visible = activeStep >= 0 && activeStep < totalSteps;
+  const activeBar = visible ? Math.floor(activeStep / 16) : -1;
+  container.querySelectorAll<HTMLElement>('.pr-bar-cell[data-bar]').forEach((cell) => {
+    cell.classList.toggle('active-bar', Number(cell.dataset.bar) === activeBar);
+  });
+
   const line = container.querySelector<SVGLineElement>('.pr-playhead');
   if (!line) return;
-  const visible = activeStep >= 0 && activeStep < totalSteps;
   const x = visible ? activeStep * STEP_W : 0;
   line.setAttribute('x1', String(x));
   line.setAttribute('x2', String(x));
@@ -84,9 +98,12 @@ export interface FocusedPianoRollOptions {
   showDurationPicker: boolean;
   showUnbake?: boolean;
   selectedDuration: number;
+  loopRange?: LoopBarRange | null;
   onSelectDuration: (steps: number) => void;
   onProjectChange: (next: SongProject, options?: boolean | ProjectChangeOptions) => void;
   onAuditionPitch: (midi: number) => void;
+  onSeekBar?: (barIdx: number) => void;
+  onLoopRangeChange?: (range: LoopBarRange | null) => void;
 }
 
 export function renderFocusedPianoRoll(
@@ -100,6 +117,7 @@ export function renderFocusedPianoRoll(
   container.innerHTML = renderL3Body(project, compiled, activeStep, options.selectedDuration, {
     showDurationPicker: options.showDurationPicker,
     showUnbake: Boolean(options.showUnbake),
+    loopRange: options.loopRange,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
@@ -107,10 +125,13 @@ export function renderFocusedPianoRoll(
   }
   wireL3Events(container, project, compiled, {
     selectedDuration: options.selectedDuration,
+    loopRange: options.loopRange,
     onSelectDuration: options.onSelectDuration,
     onProjectChange: options.onProjectChange,
     onAuditionPitch: options.onAuditionPitch,
     onPreviewModifier: () => {},
+    onSeekBar: options.onSeekBar,
+    onLoopRangeChange: options.onLoopRangeChange,
   });
 }
 
@@ -161,6 +182,7 @@ export function renderLayerEditor(
   container.innerHTML = tabsHtml + renderL3Body(project, compiled, activeStep, callbacks.selectedDuration, {
     showDurationPicker: true,
     showUnbake: false,
+    loopRange: callbacks.loopRange,
   });
   const scrollEl = container.querySelector<HTMLElement>('.pr-grid-scroll');
   if (scrollEl && prevScrollLeft > 0) {
@@ -541,7 +563,11 @@ function renderL3Body(
   compiled: CompiledSong,
   activeStep: number,
   selectedDuration: number,
-  opts: { showDurationPicker: boolean; showUnbake: boolean } = { showDurationPicker: true, showUnbake: false }
+  opts: {
+    showDurationPicker: boolean;
+    showUnbake: boolean;
+    loopRange?: LoopBarRange | null;
+  } = { showDurationPicker: true, showUnbake: false }
 ): string {
   const totalPitches = PR_MAX_MIDI - PR_MIN_MIDI + 1;
   const svgW = compiled.totalSteps * STEP_W;
@@ -549,6 +575,10 @@ function renderL3Body(
   const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
   const barWidth = 16 * STEP_W;
   const chordToneSets = compiled.resolvedChords.map((rc) => new Set(rc.pitchClasses));
+  const totalBars = compiled.resolvedChords.length;
+  const normalizedLoop = normalizeLoopRange(opts.loopRange, totalBars);
+  const activeBar =
+    activeStep >= 0 && activeStep < compiled.totalSteps ? Math.floor(activeStep / 16) : -1;
 
   let keysHtml = '';
   let gridRows = '';
@@ -589,7 +619,30 @@ function renderL3Body(
   const barHeaderCells = compiled.resolvedChords
     .map((rc, idx) => {
       const tones = rc.pitchClasses.map((pc) => KOREAN_SOLFEGE[pc]).join('·');
-      return `<div class="pr-bar-cell" style="width:${barWidth}px"><span>${idx + 1}마디</span><strong>${rc.symbol} (${tones})</strong></div>`;
+      const inLoop = Boolean(
+        normalizedLoop && idx >= normalizedLoop.startBar && idx <= normalizedLoop.endBar
+      );
+      const isStart = Boolean(normalizedLoop && idx === normalizedLoop.startBar);
+      const isEnd = Boolean(normalizedLoop && idx === normalizedLoop.endBar);
+      const isActive = idx === activeBar;
+      const cls = [
+        'pr-bar-cell',
+        isActive ? 'active-bar' : '',
+        inLoop ? 'in-loop' : '',
+        isStart ? 'loop-start' : '',
+        isEnd ? 'loop-end' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `
+        <div class="${cls}" data-bar="${idx}" style="width:${barWidth}px" title="클릭해 ${idx + 1}마디부터 재생 · 드래그로 구간 반복 지정">
+          <span class="pr-bar-num"><span class="pr-bar-seek-icon">▶</span>${idx + 1}마디</span>
+          <span class="pr-bar-meta">
+            <strong>${rc.symbol} (${tones})</strong>
+            <button class="pr-bar-loop-btn${inLoop ? ' active' : ''}" data-loop-bar="${idx}" type="button" title="${idx + 1}마디 구간 반복 토글 (Shift+클릭으로 구간 확장)">↻</button>
+          </span>
+        </div>
+      `;
     })
     .join('');
 
@@ -604,6 +657,19 @@ function renderL3Body(
             )
             .join('')}
         </div>
+      `
+    : '';
+
+  const loopBadgeHtml = normalizedLoop
+    ? `
+        <span class="pr-loop-badge">
+          <span>구간 반복: ${
+            normalizedLoop.startBar === normalizedLoop.endBar
+              ? `${normalizedLoop.startBar + 1}마디`
+              : `${normalizedLoop.startBar + 1}~${normalizedLoop.endBar + 1}마디`
+          }</span>
+          <button class="btn btn-chip" id="btn-clear-loop" type="button">반복 해제</button>
+        </span>
       `
     : '';
 
@@ -628,6 +694,21 @@ function renderL3Body(
     `;
   }
 
+  let loopOverlay = '';
+  if (normalizedLoop) {
+    const win = loopRangeToStepRange(normalizedLoop, compiled.totalSteps);
+    const startX = win.startStep * STEP_W;
+    const endX = win.endStep * STEP_W;
+    if (startX > 0) {
+      loopOverlay += `<rect class="pr-loop-dim" x="0" y="0" width="${startX}" height="${svgH}" pointer-events="none"/>`;
+    }
+    if (endX < svgW) {
+      loopOverlay += `<rect class="pr-loop-dim" x="${endX}" y="0" width="${svgW - endX}" height="${svgH}" pointer-events="none"/>`;
+    }
+    loopOverlay += `<line class="pr-loop-bound" x1="${startX}" y1="0" x2="${startX}" y2="${svgH}" pointer-events="none"/>`;
+    loopOverlay += `<line class="pr-loop-bound" x1="${endX}" y1="0" x2="${endX}" y2="${svgH}" pointer-events="none"/>`;
+  }
+
   const visiblePlayhead = activeStep >= 0 && activeStep < compiled.totalSteps;
   const playheadX = visiblePlayhead ? activeStep * STEP_W : 0;
   const playhead = `<line class="pr-playhead" x1="${playheadX}" y1="0" x2="${playheadX}" y2="${svgH}" stroke="#fbbf24" stroke-width="2" visibility="${visiblePlayhead ? 'visible' : 'hidden'}"/>`;
@@ -640,8 +721,11 @@ function renderL3Body(
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
         </div>
-        ${durationButtons}
-        <span>빈 칸 클릭: 추가 · 음표 드래그: 이동 · 오른쪽 끝 드래그: 길이 · 클릭: 삭제 · PC 건반(A~K)</span>
+        <div class="controls-row">
+          ${durationButtons}
+          ${loopBadgeHtml}
+        </div>
+        <span>마디 클릭: 이동 · 마디 드래그/↻: 구간 반복 · 빈 칸 클릭: 추가 · 음표 드래그: 이동 · PC 건반(A~K)</span>
       </div>
       <div class="pr-container">
         <div class="pr-keys-col">
@@ -655,6 +739,7 @@ function renderL3Body(
             ${chordHighlights}
             ${vLines}
             ${noteRects}
+            ${loopOverlay}
             ${playhead}
           </svg>
         </div>
@@ -687,6 +772,122 @@ function wireL3Events(
       callbacks.onAuditionPitch(Number(el.dataset.midi));
     });
   });
+
+  const totalBars = compiled.resolvedChords.length;
+
+  container.querySelector('#btn-clear-loop')?.addEventListener('click', () => {
+    callbacks.onLoopRangeChange?.(null);
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('[data-loop-bar]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const barIdx = Number(btn.dataset.loopBar);
+      const nextRange = selectLoopBarRange(
+        callbacks.loopRange ?? null,
+        barIdx,
+        totalBars,
+        e.shiftKey
+      );
+      callbacks.onLoopRangeChange?.(nextRange);
+    });
+  });
+
+  const barHeader = container.querySelector<HTMLElement>('.pr-bar-header');
+  if (barHeader && totalBars > 0) {
+    const resolveBarFromPointer = (clientX: number, target?: EventTarget | null): number => {
+      const headerRect = barHeader.getBoundingClientRect();
+      if (headerRect.width > 0) {
+        const barW = headerRect.width / totalBars;
+        const idx = Math.floor((clientX - headerRect.left) / barW);
+        return Math.max(0, Math.min(totalBars - 1, idx));
+      }
+      const cell = (target as Element | null)?.closest<HTMLElement>('.pr-bar-cell[data-bar]');
+      if (cell) {
+        return Math.max(0, Math.min(totalBars - 1, Number(cell.dataset.bar)));
+      }
+      return 0;
+    };
+
+    const setPreviewRange = (startBar: number | null, endBar: number | null): void => {
+      barHeader.querySelectorAll<HTMLElement>('.pr-bar-cell[data-bar]').forEach((cell) => {
+        const idx = Number(cell.dataset.bar);
+        const active =
+          startBar !== null && endBar !== null && idx >= startBar && idx <= endBar;
+        cell.classList.toggle('loop-preview', active);
+      });
+    };
+
+    barHeader.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const targetEl = e.target as Element | null;
+      if (targetEl?.closest('.pr-bar-loop-btn')) return;
+
+      e.preventDefault();
+      const anchorBar = resolveBarFromPointer(e.clientX, e.target);
+      let hoverBar = anchorBar;
+      let draggedAcrossBars = false;
+      let cancelled = false;
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKeyDown);
+        setPreviewRange(null, null);
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        const nextBar = resolveBarFromPointer(ev.clientX, ev.target);
+        if (nextBar !== anchorBar) {
+          draggedAcrossBars = true;
+        }
+        if (draggedAcrossBars) {
+          hoverBar = nextBar;
+          setPreviewRange(Math.min(anchorBar, hoverBar), Math.max(anchorBar, hoverBar));
+        }
+      };
+
+      const onCancel = () => {
+        cancelled = true;
+        cleanup();
+      };
+
+      const onKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key === 'Escape') {
+          onCancel();
+        }
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        cleanup();
+        if (cancelled) return;
+        if (draggedAcrossBars) {
+          callbacks.onLoopRangeChange?.({
+            startBar: Math.min(anchorBar, hoverBar),
+            endBar: Math.max(anchorBar, hoverBar),
+          });
+          return;
+        }
+        if (e.shiftKey || ev.shiftKey) {
+          const nextRange = selectLoopBarRange(
+            callbacks.loopRange ?? null,
+            anchorBar,
+            totalBars,
+            true
+          );
+          callbacks.onLoopRangeChange?.(nextRange);
+          return;
+        }
+        callbacks.onSeekBar?.(anchorBar);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKeyDown);
+    });
+  }
 
   const svg = container.querySelector<SVGSVGElement>('.pr-svg');
   if (!svg) return;
