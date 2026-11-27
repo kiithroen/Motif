@@ -93,7 +93,12 @@ export function renderBasicsCourseMap(
   const totalCount = BASIC_LESSONS.length;
   const doneCount = completedIds.size;
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-  const activeLesson = BASIC_LESSONS.find((l) => l.id === activeLessonId) ?? BASIC_LESSONS[0];
+  const activeLesson =
+    (completedIds.has(activeLessonId)
+      ? BASIC_LESSONS.find((l) => !completedIds.has(l.id))
+      : undefined) ??
+    BASIC_LESSONS.find((l) => l.id === activeLessonId) ??
+    BASIC_LESSONS[0];
 
   const unitsHtml = units
     .map((unit) => {
@@ -154,7 +159,9 @@ export function renderBasicsCourseMap(
     </div>
   `;
 
-  container.querySelector('#btn-basics-resume')?.addEventListener('click', callbacks.onResumeActive);
+  container.querySelector('#btn-basics-resume')?.addEventListener('click', () => {
+    callbacks.onStartLesson(activeLesson.id);
+  });
   container.querySelector('#btn-basics-review')?.addEventListener('click', callbacks.onReviewRandomCompleted);
   container.querySelectorAll<HTMLButtonElement>('[data-start-basic]').forEach((btn) => {
     btn.addEventListener('click', () => {

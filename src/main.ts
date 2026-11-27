@@ -32,7 +32,7 @@ import { renderBasicsCourseMap, renderBasicsView, updateBasicsPlayButton } from 
 import { renderCoachPanel } from './ui/coachPanel';
 import { renderGuitarStrip, updateGuitarStripActiveBar } from './ui/guitarStrip';
 import { renderLayerEditor, updatePianoRollPlayhead } from './ui/layers';
-import { renderLessonBanner } from './ui/lessonPanel';
+import { renderLessonBanner, renderLessonCourseMap } from './ui/lessonPanel';
 
 const STORAGE_KEY = 'motif_project_v1';
 const LESSON_STORAGE_KEY = 'motif_lessons_v1';
@@ -153,6 +153,7 @@ function init(): void {
 
   let appMode: AppMode = loadInitialMode();
   let basicsScreen: 'map' | 'lesson' = 'map';
+  let lessonScreen: 'map' | 'lesson' = 'map';
   let freeProject = loadInitialProject();
   let basicsProgress = loadProgress(BASICS_STORAGE_KEY, BASIC_LESSONS);
   let lessonProgress = loadProgress(LESSON_STORAGE_KEY, LESSONS);
@@ -196,6 +197,7 @@ function init(): void {
     <div class="app-shell">
       <header class="topbar" id="topbar"></header>
       <section class="basics-root" id="basics-root" hidden></section>
+      <section class="basics-root" id="lesson-map-root" hidden></section>
       <div class="sandbox-root" id="sandbox-root" hidden>
         <section class="lesson-banner" id="lesson-banner" hidden></section>
         <section class="chord-strip" id="chord-strip"></section>
@@ -209,6 +211,7 @@ function init(): void {
 
   const topbarEl = document.getElementById('topbar')!;
   const basicsRootEl = document.getElementById('basics-root')!;
+  const lessonMapRootEl = document.getElementById('lesson-map-root')!;
   const sandboxRootEl = document.getElementById('sandbox-root')!;
   const lessonBannerEl = document.getElementById('lesson-banner')!;
   const stripEl = document.getElementById('chord-strip')!;
@@ -237,6 +240,10 @@ function init(): void {
         basicsScreen = 'map';
         transport.stop();
         renderAll();
+      } else if (mode === 'lesson' && lessonScreen !== 'map') {
+        lessonScreen = 'map';
+        transport.stop();
+        renderAll();
       }
       return;
     }
@@ -249,6 +256,7 @@ function init(): void {
       basicsScreen = 'map';
       loadWorkspaceProject(createBasicLessonProject(basicsProgress.activeLessonId));
     } else if (mode === 'lesson') {
+      lessonScreen = 'map';
       loadWorkspaceProject(createLessonProject(lessonProgress.activeLessonId));
     } else {
       loadWorkspaceProject(freeProject);
@@ -279,12 +287,21 @@ function init(): void {
   function selectLesson(lessonId: string): void {
     lessonProgress = { ...lessonProgress, activeLessonId: lessonId };
     saveProgress(LESSON_STORAGE_KEY, lessonProgress);
+    lessonScreen = 'lesson';
     showLessonHint = false;
     if (appMode !== 'lesson') {
       appMode = 'lesson';
       saveMode('lesson');
     }
     loadWorkspaceProject(createLessonProject(lessonId));
+  }
+
+  function reviewRandomCompletedLesson(): void {
+    const done = lessonProgress.completedIds;
+    if (done.length === 0) return;
+    const pool = done.length > 1 ? done.filter((id) => id !== lessonProgress.activeLessonId) : done;
+    const picked = pool[Math.floor(Math.random() * pool.length)] ?? done[0];
+    selectLesson(picked);
   }
 
   function openProjectInFreeSketch(source: SongProject): void {
@@ -364,14 +381,18 @@ function init(): void {
       </div>
     `;
 
-    if (appMode === 'basics') {
+    if (appMode === 'basics' || (appMode === 'lesson' && lessonScreen === 'map')) {
+      const subText =
+        appMode === 'basics'
+          ? '귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스'
+          : '4유닛 20강 실전 미션에서 원하는 단원을 골라 도전한다';
       topbarEl.innerHTML = `
         <div class="topbar-main">
           <div class="brand">
             <div class="brand-mark">M</div>
             <div>
               <div class="brand-title">Motif 작곡 스케치북</div>
-              <div class="brand-sub">귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스</div>
+              <div class="brand-sub">${subText}</div>
             </div>
           </div>
           ${modeSwitchHtml}
@@ -579,10 +600,18 @@ function init(): void {
       lessonBannerEl,
       lesson,
       evaluation,
-      new Set(lessonProgress.completedIds),
       showLessonHint,
       {
-        onSelectLesson: (id) => selectLesson(id),
+        onBackToMap: () => {
+          lessonScreen = 'map';
+          transport.stop();
+          renderAll();
+        },
+        onPrevLesson: () => {
+          const idx = LESSONS.findIndex((l) => l.id === lesson.id);
+          const prevLesson = LESSONS[idx - 1];
+          if (prevLesson) selectLesson(prevLesson.id);
+        },
         onToggleHint: () => {
           showLessonHint = !showLessonHint;
           syncLessonBanner();
@@ -704,13 +733,33 @@ function init(): void {
 
     if (appMode === 'basics') {
       basicsRootEl.hidden = false;
+      lessonMapRootEl.hidden = true;
       sandboxRootEl.hidden = true;
       renderBasicsMode(report);
       renderTopControls();
       return;
     }
 
+    if (appMode === 'lesson' && lessonScreen === 'map') {
+      basicsRootEl.hidden = true;
+      lessonMapRootEl.hidden = false;
+      sandboxRootEl.hidden = true;
+      renderLessonCourseMap(
+        lessonMapRootEl,
+        new Set(lessonProgress.completedIds),
+        lessonProgress.activeLessonId,
+        {
+          onStartLesson: (id) => selectLesson(id),
+          onResumeActive: () => selectLesson(lessonProgress.activeLessonId),
+          onReviewRandomCompleted: reviewRandomCompletedLesson,
+        }
+      );
+      renderTopControls();
+      return;
+    }
+
     basicsRootEl.hidden = true;
+    lessonMapRootEl.hidden = true;
     sandboxRootEl.hidden = false;
     syncLessonBanner(report);
     renderTopControls();
