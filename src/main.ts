@@ -1,5 +1,5 @@
 import './styles.css';
-import { MotifAudioEngine } from './audio/instruments';
+import { MotifAudioEngine, type SampleLoadStatus } from './audio/instruments';
 import { MotifTransport, type TrackMuteState } from './audio/transport';
 import { analyzeSong } from './core/analyzer';
 import {
@@ -239,6 +239,35 @@ function init(): void {
   const mainEl = document.getElementById('main-panel')!;
   const coachEl = document.getElementById('coach-panel')!;
 
+  function updateAudioBadge(status: SampleLoadStatus): void {
+    const badge = topbarEl.querySelector<HTMLElement>('#audio-status-badge');
+    if (!badge) return;
+    badge.className = `audio-status-badge ${status}`;
+    if (status === 'idle') {
+      badge.hidden = true;
+      badge.textContent = '';
+      return;
+    }
+    badge.hidden = false;
+    if (status === 'loading') {
+      badge.textContent = '음원 로딩 중...';
+    } else if (status === 'ready') {
+      badge.textContent = '실제 악기 음원';
+    } else {
+      badge.textContent = '기본 신스 음원';
+    }
+  }
+
+  audio.onSampleStatusChange((status) => {
+    updateAudioBadge(status);
+  });
+
+  const handleFirstGesture = (): void => {
+    audio.preload();
+  };
+  window.addEventListener('pointerdown', handleFirstGesture, { once: true });
+  window.addEventListener('keydown', handleFirstGesture, { once: true });
+
   function isTabOnlyChange(prev: SongProject, next: SongProject): boolean {
     if (prev.activeLayer === next.activeLayer) return false;
     const normalizedPrev = { ...prev, activeLayer: next.activeLayer };
@@ -418,7 +447,7 @@ function init(): void {
       </div>
     `;
 
-    const topbarRightHtml = `<div class="topbar-right">${chordSwitchHtml}${modeSwitchHtml}</div>`;
+    const topbarRightHtml = `<div class="topbar-right"><span class="audio-status-badge" id="audio-status-badge" hidden></span>${chordSwitchHtml}${modeSwitchHtml}</div>`;
 
     if (appMode === 'basics' || (appMode === 'lesson' && lessonScreen === 'map')) {
       const subText =
@@ -437,18 +466,14 @@ function init(): void {
           ${topbarRightHtml}
         </div>
       `;
+      updateAudioBadge(audio.getSampleStatus());
       topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
         btn.addEventListener('click', () => {
           setChordView(btn.dataset.chordView as ChordInstrument);
         });
       });
-      topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        setChordView(btn.dataset.chordView as ChordInstrument);
-      });
-    });
 
-    topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
+      topbarEl.querySelectorAll<HTMLButtonElement>('[data-app-mode]').forEach((btn) => {
         btn.addEventListener('click', () => {
           switchMode(btn.dataset.appMode as AppMode);
         });
@@ -470,7 +495,7 @@ function init(): void {
             <div class="brand-sub">L1 블록 → L2 변형 체인 → L3 음표로 배우는 4/8마디 작곡</div>
           </div>
         </div>
-        ${topbarRightHtml}
+      ${topbarRightHtml}
       </div>
       <div class="controls-row topbar-tools">
         <button class="btn btn-primary btn-play${transport.isPlaying() ? ' playing' : ''}" id="btn-play" type="button">
@@ -499,8 +524,8 @@ function init(): void {
         <div class="ctrl-group">
           <span>선율 악기</span>
           <select id="sel-inst">
-            <option value="piano"${project.melodyInstrument === 'piano' ? ' selected' : ''}>일렉 피아노</option>
-            <option value="guitar"${project.melodyInstrument === 'guitar' ? ' selected' : ''}>어쿠스틱 기타</option>
+            <option value="piano"${project.melodyInstrument === 'piano' ? ' selected' : ''}>그랜드 피아노</option>
+            <option value="guitar"${project.melodyInstrument === 'guitar' ? ' selected' : ''}>나일론 기타</option>
           </select>
         </div>
         <button class="btn btn-chip${mutes.melody ? ' muted' : ''}" data-mute="melody" type="button">멜로디</button>
@@ -513,6 +538,8 @@ function init(): void {
         <button class="btn" id="btn-midi" type="button">MIDI 저장</button>
       </div>
     `;
+
+    updateAudioBadge(audio.getSampleStatus());
 
     topbarEl.querySelectorAll<HTMLButtonElement>('[data-chord-view]').forEach((btn) => {
       btn.addEventListener('click', () => {

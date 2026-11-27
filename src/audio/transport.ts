@@ -104,6 +104,9 @@ export class MotifTransport {
     this.finishing = false;
     this.previewSong = null;
     this.stepQueue = [];
+    if (wasPlaying) {
+      this.audio.stopAll?.();
+    }
     this.callbacks.onStep?.(-1);
     if (wasPlaying) {
       this.callbacks.onStop?.();

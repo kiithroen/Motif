@@ -22,6 +22,7 @@ function createMockAudio() {
     }),
     playBass: vi.fn(),
     playDrum: vi.fn(),
+    stopAll: vi.fn(),
   } as unknown as MotifAudioEngine;
 
   return {
@@ -110,5 +111,6 @@ describe('MotifTransport preview preservation', () => {
     expect(mock.engine.playGuitar).toHaveBeenCalled();
     expect(mock.engine.playPiano).not.toHaveBeenCalled();
     transport.stop();
+    expect(mock.engine.stopAll).toHaveBeenCalled();
   });
 });

@@ -74,6 +74,34 @@ button, select, input {
   flex-wrap: wrap;
 }
 
+.audio-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.audio-status-badge.loading {
+  border-color: rgba(251, 191, 36, 0.45);
+  color: var(--amber);
+}
+
+.audio-status-badge.ready {
+  border-color: rgba(52, 211, 153, 0.45);
+  color: var(--green);
+}
+
+.audio-status-badge.fallback {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
 .chord-view-switch {
   display: inline-flex;
   background: var(--panel-alt);
