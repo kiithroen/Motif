@@ -11,6 +11,8 @@ export interface GeminiCoachSuggestion {
   changeDescriptions: string[];
   warnings: string[];
   demoProject?: SongProject;
+  hasHarmonyDemo: boolean;
+  hasMelodyDemo: boolean;
 }
 
 export interface GeminiCoachUiState {
@@ -36,7 +38,7 @@ export interface CoachCallbacks {
   onSubmitPrompt: (prompt: string) => void;
   onCancelGemini: () => void;
   onPreviewGeminiPatch: (after: boolean) => void;
-  onOpenManualEditLayer: () => void;
+  onOpenManualEditLayer: (layer: 'L2' | 'L3') => void;
   onDismissGeminiSuggestion: () => void;
 }
 
@@ -146,7 +148,16 @@ function renderGeminiCoachSection(gemini: GeminiCoachUiState): string {
               data-gemini-preview="after"
               type="button"
             >▶ 이론 예시 듣기</button>
-            <button class="btn btn-chip" id="btn-gemini-open-l2" type="button">L2에서 직접 바꾸기</button>
+            ${
+              s.hasHarmonyDemo
+                ? `<button class="btn btn-chip" data-gemini-open-layer="L2" type="button">L2에서 직접 바꾸기</button>`
+                : ''
+            }
+            ${
+              s.hasMelodyDemo
+                ? `<button class="btn btn-chip" data-gemini-open-layer="L3" type="button">L3에서 직접 바꾸기</button>`
+                : ''
+            }
           </div>
         </div>
       `
@@ -320,8 +331,13 @@ export function renderCoachPanel(
     });
   });
 
-  container.querySelector('#btn-gemini-open-l2')?.addEventListener('click', () => {
-    callbacks.onOpenManualEditLayer();
+  container.querySelectorAll<HTMLButtonElement>('[data-gemini-open-layer]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const layer = btn.dataset.geminiOpenLayer;
+      if (layer === 'L2' || layer === 'L3') {
+        callbacks.onOpenManualEditLayer(layer);
+      }
+    });
   });
 
   container.querySelector('#btn-gemini-dismiss')?.addEventListener('click', () => {

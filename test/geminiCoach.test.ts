@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiCoachError, maskApiKey, requestGeminiCoach } from '../src/ai/geminiCoach';
 import { analyzeSong } from '../src/core/analyzer';
-import { COACH_CONFIG } from '../src/core/coachPatch';
+import { COACH_CONFIG, getMaxDemoChords } from '../src/core/coachPatch';
 import { compileSong } from '../src/core/compiler';
 import { createDefaultProject } from '../src/core/model';
 
@@ -15,6 +15,7 @@ function createBaseArgs() {
 describe('geminiCoach REST adapter', () => {
   it('sends structured generateContent request and parses valid tutor response', async () => {
     const { project, compiled, report } = createBaseArgs();
+    project.bars = 8;
 
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(
@@ -25,7 +26,7 @@ describe('geminiCoach REST adapter', () => {
                 parts: [
                   {
                     thought: true,
-                    text: '내부 사고 과정: 4마디 iv 비교 예시와 직접 해보기 단계를 안내하자.',
+                    text: '내부 사고 과정: 4마디 iv 비교 예시와 8마디 멜로디 대안을 안내하자.',
                   },
                   {
                     text: JSON.stringify({
@@ -34,6 +35,12 @@ describe('geminiCoach REST adapter', () => {
                       manualSteps: ['L2 변형 체인 탭에서 4마디 코드를 iv로 바꿔 들어 보세요.'],
                       patch: {
                         chords: [{ bar: 4, degree: 'iv' }],
+                        melodyBars: [
+                          {
+                            bar: 8,
+                            notes: [{ stepInBar: 0, midi: 72, duration: 8 }],
+                          },
+                        ],
                       },
                     }),
                   },
@@ -68,7 +75,11 @@ describe('geminiCoach REST adapter', () => {
       systemInstruction: { parts: Array<{ text: string }> };
       generationConfig: {
         responseMimeType: string;
-        responseJsonSchema: { type: string; additionalProperties: boolean };
+        responseJsonSchema: {
+          type: string;
+          additionalProperties: boolean;
+          properties: { patch: { properties: { chords: { maxItems: number } } } };
+        };
         maxOutputTokens: number;
         thinkingConfig: { thinkingLevel: string };
       };
@@ -76,6 +87,9 @@ describe('geminiCoach REST adapter', () => {
     expect(sentBody.generationConfig.responseMimeType).toBe('application/json');
     expect(sentBody.generationConfig.responseJsonSchema.type).toBe('object');
     expect(sentBody.generationConfig.responseJsonSchema.additionalProperties).toBe(false);
+    expect(sentBody.generationConfig.responseJsonSchema.properties.patch.properties.chords.maxItems).toBe(
+      getMaxDemoChords(8)
+    );
     expect(sentBody.generationConfig.maxOutputTokens).toBe(COACH_CONFIG.generation.maxOutputTokens);
     expect(sentBody.generationConfig.thinkingConfig.thinkingLevel).toBe(
       COACH_CONFIG.generation.thinkingLevel
@@ -85,6 +99,7 @@ describe('geminiCoach REST adapter', () => {
     expect(result.response.headline).toBe('4마디에 아련한 여운 더하기');
     expect(result.response.manualSteps).toEqual(['L2 변형 체인 탭에서 4마디 코드를 iv로 바꿔 들어 보세요.']);
     expect(result.response.patch?.chords).toEqual([{ bar: 4, degree: 'iv' }]);
+    expect(result.response.patch?.melodyBars?.[0].bar).toBe(8);
   });
 
   it('handles missing key, HTTP auth/rate errors, and invalid payload without leaking API key', async () => {

@@ -156,13 +156,13 @@ export async function requestGeminiCoach(options: RequestGeminiCoachOptions): Pr
   const url = `${baseUrl}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const context = buildCoachContext(options.project, options.compiled, options.report);
-  const systemPrompt = buildCoachSystemPrompt();
+  const systemPrompt = buildCoachSystemPrompt(options.project.bars);
   const userPrompt = buildCoachUserPrompt(context, options.mode, trimmedRequest);
 
   const generationConfig: Record<string, unknown> = {
     maxOutputTokens: COACH_CONFIG.generation.maxOutputTokens,
     responseMimeType: 'application/json',
-    responseJsonSchema: buildCoachResponseSchema(),
+    responseJsonSchema: buildCoachResponseSchema(options.project.bars),
     thinkingConfig: {
       thinkingLevel: COACH_CONFIG.generation.thinkingLevel,
     },

@@ -24,8 +24,15 @@
   },
   "limits": {
     "maxPromptLength": 400,
-    "maxDemoChords": 2,
-    "maxDemoModifiers": 2
+    "maxDemoChordsByBars": {
+      "4": 2,
+      "8": 4
+    },
+    "maxDemoModifiers": 2,
+    "maxDemoMelodyBars": 2,
+    "maxDemoMelodyNotesPerBar": 8,
+    "minMelodyMidi": 60,
+    "maxMelodyMidi": 84
   },
   "quickPrompts": [
     {
@@ -35,18 +42,18 @@
     },
     {
       "id": "find_awkward",
-      "label": "어색한 부분 이유 알려줘",
-      "prompt": "지금 곡에서 가장 어색하거나 단조롭게 들리는 마디와 그 음악적 이유를 알려 줘"
+      "label": "어색한 음·마디 이유",
+      "prompt": "지금 곡의 코드와 멜로디에서 어색하거나 단조롭게 들리는 마디와 그 음악적 이유를 계이름으로 알려 줘"
     },
     {
       "id": "cadence_mood",
-      "label": "3~4마디 여운 더하는 이론",
-      "prompt": "3~4마디에 여운을 더하려면 어떤 코드 대안이나 이론 기법을 써볼 수 있는지 비교 예시와 함께 알려 줘"
+      "label": "후반부 여운 더하는 법",
+      "prompt": "후반부 마디에 여운을 더할 코드·멜로디 대안을 이론 설명과 비교 예시로 알려 줘"
     },
     {
-      "id": "climax_tip",
-      "label": "후반부 살리는 기법",
-      "prompt": "후반부를 자연스럽게 끌어올리는 작곡 기법을 이론 설명과 비교 예시로 알려 줘"
+      "id": "melody_shape",
+      "label": "멜로디 굴곡 살리는 팁",
+      "prompt": "현재 멜로디의 음정 흐름과 리듬을 더 노래하듯 다듬는 방법을 비교 예시와 함께 알려 줘"
     }
   ]
 }

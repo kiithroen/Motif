@@ -8,7 +8,7 @@
 
 - **기초 입문 20강(4유닛 × 5강, 랜덤 0%) 완료:** 4유닛 코스 목차 대시보드, 완료한 강 랜덤 복습, 이번 강 핵심 배지, A/B 소리 비교와 전용 실습 UI(`src/data/basics.json`, `src/core/basics.ts`, `src/ui/basicsView.ts`)를 통해 화음·뼈대·리듬·클래식 해부(「환희의 송가」, 「작은 별」)·캐논 8마디 편곡까지 단계별로 학습한다.
 - **실전 미션 20강(4유닛 × 5강) & 자유 스케치 완료:** L1 블록 설계 → L2 변형 체인 → L3 정밀 편집(음표 추가/삭제, 음표 본체 드래그로 음높이·박자 이동, 오른쪽 끝 드래그로 길이 조절, 실시간 화성 색상·미리듣기)·이론 코치 → 8마디 완곡·조바꿈까지 20개 미션을 4유닛 목차 및 랜덤 복습 UI(`src/data/lessons.json`, `src/core/lesson.ts`, `src/ui/lessonPanel.ts`)로 연결했고, `자유 스케치` 샌드박스·`smplr` 실제 악기 샘플 오디오 엔진(피아노·나일론 기타·베이스·드럼 + 클린 폴백)·`.mid` 내보내기·GitHub Pages 자동 배포까지 완료했다.
-- **Gemini 이론 튜터 연동 완료:** `src/data/coach.json`, `src/core/coachPatch.ts`, `src/ai/geminiCoach.ts`, `src/ui/coachPanel.ts` 를 통해 로컬 `DiagnosisReport` 해설, 초보자 질문 응답, 직접 따라 해보기(`manualSteps`) 안내, 그리고 원곡·L3 사용자 멜로디를 건드리지 않는 국소 대안(마디 코드·L2 변형 카드) `내 곡 듣기` / `이론 예시 듣기` 비교 재생을 제공한다.
+- **Gemini 이론 튜터 연동 완료:** `src/data/coach.json`, `src/core/coachPatch.ts`, `src/ai/geminiCoach.ts`, `src/ui/coachPanel.ts` 를 통해 로컬 `DiagnosisReport` 및 마디별 멜로디 컨텍스트 기반 해설, 초보자 질문 응답, 직접 따라 해보기(`manualSteps`) 안내, 그리고 원곡·사용자 멜로디를 덮어쓰지 않는 국소 대안(곡 길이 절반 이내 마디 코드, L2 변형 카드, 최대 2마디 멜로디) `내 곡 듣기` / `이론 예시 듣기` 비교 재생을 제공한다.
 
 ## 다음 작업
 

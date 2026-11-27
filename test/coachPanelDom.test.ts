@@ -120,10 +120,12 @@ describe('coachPanel DOM interactions and read-only Gemini tutor UI', () => {
           explanation: '<b>IV를 iv로</b> 바꾸면 여운이 살아납니다.',
           theoryTip: '같은 뿌리 단조 화음 차용 기법입니다.',
           manualSteps: ['L2 변형 체인에서 4마디를 iv로 직접 바꿔 보세요.'],
-          patchSummary: '4마디 IV → iv 비교 예시',
-          changeDescriptions: ['마디 코드 예시: 4마디 IV→iv'],
+          patchSummary: '4마디 IV → iv 및 멜로디 비교 예시',
+          changeDescriptions: ['마디 코드 예시: 4마디 IV→iv', '멜로디 예시 (4마디): 레(D5) → 도(C5)'],
           warnings: [],
           demoProject: demo,
+          hasHarmonyDemo: true,
+          hasMelodyDemo: true,
         },
       }),
       callbacks
@@ -143,8 +145,10 @@ describe('coachPanel DOM interactions and read-only Gemini tutor UI', () => {
     expect(callbacks.onPreviewGeminiPatch).toHaveBeenNthCalledWith(1, false);
     expect(callbacks.onPreviewGeminiPatch).toHaveBeenNthCalledWith(2, true);
 
-    container.querySelector<HTMLButtonElement>('#btn-gemini-open-l2')!.click();
-    expect(callbacks.onOpenManualEditLayer).toHaveBeenCalledTimes(1);
+    container.querySelector<HTMLButtonElement>('[data-gemini-open-layer="L2"]')!.click();
+    container.querySelector<HTMLButtonElement>('[data-gemini-open-layer="L3"]')!.click();
+    expect(callbacks.onOpenManualEditLayer).toHaveBeenNthCalledWith(1, 'L2');
+    expect(callbacks.onOpenManualEditLayer).toHaveBeenNthCalledWith(2, 'L3');
 
     container.querySelector<HTMLButtonElement>('#btn-gemini-dismiss')!.click();
     expect(callbacks.onDismissGeminiSuggestion).toHaveBeenCalledTimes(1);

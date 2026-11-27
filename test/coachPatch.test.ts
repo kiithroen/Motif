@@ -6,14 +6,15 @@ import {
   buildCoachContext,
   buildCoachResponseSchema,
   describeCoachPatch,
+  getMaxDemoChords,
   parseCoachResponse,
   sanitizeCoachPatch,
 } from '../src/core/coachPatch';
 import { compileSong } from '../src/core/compiler';
 import { PRESETS, createDefaultProject } from '../src/core/model';
 
-describe('coachPatch tutor context, strict guardrails, and demo comparison', () => {
-  it('excludes L1 generator catalogs from context and builds strict local-demo schema', () => {
+describe('coachPatch tutor context, melody comparison, and strict guardrails', () => {
+  it('serializes melodyByBar and scales chord demo schema limit by bars (4 vs 8)', () => {
     const project = createDefaultProject();
     project.baked = true;
     project.bakedMelody = [
@@ -27,46 +28,73 @@ describe('coachPatch tutor context, strict guardrails, and demo comparison', () 
     const roundTripped = JSON.parse(JSON.stringify(ctx)) as typeof ctx;
 
     expect(roundTripped.song.bars).toBe(project.bars);
-    expect(roundTripped.chords.length).toBe(project.bars);
-    expect(roundTripped.chords[0].bar).toBe(1);
-    expect(roundTripped.analysis.score).toBe(report.score);
-    expect(roundTripped.analysis.issues.length).toBe(report.issues.length);
-    expect(roundTripped.catalog.availableDegrees).toEqual(PRESETS.availableDegrees);
-    expect(roundTripped.catalog.modifiers.map((m) => m.id)).toEqual(
-      PRESETS.modifiers.map((m) => m.id)
-    );
+    expect(roundTripped.melodyByBar.length).toBe(project.bars);
+    expect(roundTripped.melodyByBar[0].bar).toBe(1);
+    expect(roundTripped.melodyByBar[0].notes[0]).toMatchObject({
+      stepInBar: 0,
+      midi: 65,
+      korean: '파',
+    });
+    expect(roundTripped.melodyByBar[1].notes[0]).toMatchObject({
+      stepInBar: 0,
+      midi: 67,
+      korean: '솔',
+    });
     expect('progressions' in roundTripped.catalog).toBe(false);
     expect('grooves' in roundTripped.catalog).toBe(false);
     expect('contours' in roundTripped.catalog).toBe(false);
 
-    const schema = buildCoachResponseSchema() as {
+    const schema4 = buildCoachResponseSchema(4) as {
       type: string;
       additionalProperties: boolean;
       required: string[];
-      properties: { patch: { properties: Record<string, unknown> } };
+      properties: {
+        patch: {
+          properties: {
+            chords: { maxItems: number };
+            melodyBars: { maxItems: number };
+          };
+        };
+      };
     };
-    expect(schema.type).toBe('object');
-    expect(schema.additionalProperties).toBe(false);
-    expect(schema.required).toEqual(['headline', 'explanation']);
-    expect(Object.keys(schema.properties.patch.properties).sort()).toEqual(['chords', 'modifiers']);
+    const schema8 = buildCoachResponseSchema(8) as typeof schema4;
+    expect(schema4.type).toBe('object');
+    expect(schema4.additionalProperties).toBe(false);
+    expect(schema4.required).toEqual(['headline', 'explanation']);
+    expect(Object.keys(schema4.properties.patch.properties).sort()).toEqual([
+      'chords',
+      'melodyBars',
+      'modifiers',
+    ]);
+    expect(schema4.properties.patch.properties.chords.maxItems).toBe(getMaxDemoChords(4));
+    expect(schema8.properties.patch.properties.chords.maxItems).toBe(getMaxDemoChords(8));
+    expect(schema4.properties.patch.properties.melodyBars.maxItems).toBe(
+      COACH_CONFIG.limits.maxDemoMelodyBars
+    );
   });
 
-  it('parses fenced JSON with manualSteps and rejects malformed JSON or missing required fields', () => {
+  it('parses fenced JSON with manualSteps and melodyBars, rejecting malformed JSON', () => {
     const raw = [
       '이론 설명과 비교 예시입니다:',
       '```json',
       JSON.stringify({
-        headline: '4마디 모달 인터체인지 비교',
-        explanation: '4마디의 IV(F)를 같은 뿌리의 마이너 iv(Fm)로 잠시 바꾸면 아련한 여운이 생깁니다.',
-        theoryTip: '같은 으뜸음 조에서 화음을 빌려오는 기법을 모달 인터체인지라고 합니다.',
+        headline: '4마디 종지 멜로디 비교',
+        explanation: '4마디 끝음을 으뜸음 도(C5)로 착지시키면 안정적인 마침표가 됩니다.',
         manualSteps: [
-          'L2 변형 체인 탭으로 이동한다.',
-          '4마디 코드 슬롯을 iv(Fm)로 직접 바꿔 들어 본다.',
+          'L3 피아노롤에서 4마디 마지막 음을 C5(도)로 옮겨 보세요.',
         ],
-        patchSummary: '4마디 IV → iv 비교 예시',
+        patchSummary: '4마디 iv 코드 및 종지 멜로디 비교',
         patch: {
           chords: [{ bar: 4, degree: 'iv' }],
-          modifiers: [{ id: 'modal_borrow', enabled: true, amount: 0.8 }],
+          melodyBars: [
+            {
+              bar: 4,
+              notes: [
+                { stepInBar: 0, midi: 74, duration: 4 },
+                { stepInBar: 8, midi: 72, duration: 8 },
+              ],
+            },
+          ],
         },
       }),
       '```',
@@ -74,86 +102,118 @@ describe('coachPatch tutor context, strict guardrails, and demo comparison', () 
 
     const { response, warnings } = parseCoachResponse(raw, 4);
     expect(warnings).toEqual([]);
-    expect(response.headline).toBe('4마디 모달 인터체인지 비교');
-    expect(response.manualSteps).toEqual([
-      'L2 변형 체인 탭으로 이동한다.',
-      '4마디 코드 슬롯을 iv(Fm)로 직접 바꿔 들어 본다.',
-    ]);
     expect(response.patch?.chords).toEqual([{ bar: 4, degree: 'iv' }]);
+    expect(response.patch?.melodyBars?.[0]).toEqual({
+      bar: 4,
+      notes: [
+        { stepInBar: 0, midi: 74, duration: 4 },
+        { stepInBar: 8, midi: 72, duration: 8 },
+      ],
+    });
 
     expect(() => parseCoachResponse('not-json', 4)).toThrow();
     expect(() => parseCoachResponse(JSON.stringify({ headline: '제목만 있음' }), 4)).toThrow();
   });
 
-  it('blocks global/L1/melody-overwrite fields and truncates oversized demo lists with warnings', () => {
+  it('blocks forbidden fields, enforces bar-based chord limits, and sanitizes melodyBars', () => {
     const limits = COACH_CONFIG.limits;
     const validDegrees = PRESETS.availableDegrees;
     const validMods = PRESETS.modifiers;
+    const maxChords8 = getMaxDemoChords(8);
 
-    const oversizedChords = [
-      { bar: 0, degree: validDegrees[0] },
-      { bar: 5, degree: validDegrees[0] },
-      { bar: 1, degree: 'INVALID' },
-      ...Array.from({ length: limits.maxDemoChords + 1 }, (_, idx) => ({
-        bar: idx + 1,
-        degree: validDegrees[idx % validDegrees.length],
-      })),
-    ];
+    const oversizedChords8 = Array.from({ length: maxChords8 + 2 }, (_, idx) => ({
+      bar: idx + 1,
+      degree: validDegrees[idx % validDegrees.length],
+    }));
 
-    const oversizedMods = [
-      { id: 'unknown_mod', enabled: true },
-      ...validMods.slice(0, limits.maxDemoModifiers + 1).map((m, idx) => ({
-        id: m.id,
-        enabled: true,
-        amount: idx === 0 ? 1.8 : 0.7,
-      })),
+    const oversizedMelodyBars = [
+      { bar: 0, notes: [{ stepInBar: 0, midi: 72, duration: 4 }] },
+      { bar: 9, notes: [{ stepInBar: 0, midi: 72, duration: 4 }] },
+      {
+        bar: 2,
+        notes: [
+          { stepInBar: 20, midi: 72, duration: 4 },
+          { stepInBar: 0, midi: limits.minMelodyMidi - 10, duration: 20 },
+          ...Array.from({ length: limits.maxDemoMelodyNotesPerBar + 2 }, (_, idx) => ({
+            stepInBar: idx + 1,
+            midi: limits.minMelodyMidi + idx,
+            duration: 1,
+          })),
+        ],
+      },
+      { bar: 3, notes: [{ stepInBar: 0, midi: 72, duration: 4 }] },
+      { bar: 4, notes: [{ stepInBar: 0, midi: 74, duration: 4 }] },
     ];
 
     const { patch, warnings } = sanitizeCoachPatch(
       {
         keyRoot: 2,
         mode: 'minor',
-        bars: 8,
+        bars: 4,
         bpm: 120,
         blocks: { progressionId: PRESETS.progressions[0].id },
         unbakeMelody: true,
-        chords: oversizedChords,
-        modifiers: oversizedMods,
+        chords: oversizedChords8,
+        modifiers: validMods.slice(0, limits.maxDemoModifiers + 1).map((m) => ({
+          id: m.id,
+          enabled: true,
+        })),
+        melodyBars: oversizedMelodyBars,
       },
-      4
+      8
     );
 
-    expect(warnings.length).toBeGreaterThanOrEqual(11);
+    expect(warnings.length).toBeGreaterThanOrEqual(12);
     expect('blocks' in (patch ?? {})).toBe(false);
-    expect('bpm' in (patch ?? {})).toBe(false);
     expect('unbakeMelody' in (patch ?? {})).toBe(false);
-    expect(patch?.chords?.length).toBe(limits.maxDemoChords);
+    expect(patch?.chords?.length).toBe(maxChords8);
     expect(patch?.modifiers?.length).toBe(limits.maxDemoModifiers);
-    expect(patch?.modifiers?.[0].amount).toBe(1);
+    expect(patch?.melodyBars?.length).toBe(limits.maxDemoMelodyBars);
+    expect(patch?.melodyBars?.[0].notes.length).toBe(limits.maxDemoMelodyNotesPerBar);
+    expect(patch?.melodyBars?.[0].notes[0].midi).toBe(limits.minMelodyMidi);
   });
 
-  it('builds isolated comparison copy without altering baked L3 melody or original blocks', () => {
+  it('builds isolated demo copy: preserves other bars and original project, and keeps bakedMelody untouched when melodyBars is absent', () => {
     const project = createDefaultProject();
     project.baked = true;
     project.bakedMelody = [
       { id: 'u1', midi: 72, step: 0, duration: 4, velocity: 0.8, origin: 'user' },
       { id: 'u2', midi: 76, step: 16, duration: 4, velocity: 0.8, origin: 'user' },
+      { id: 'u3', midi: 77, step: 48, duration: 4, velocity: 0.8, origin: 'user' },
     ];
 
-    const patch = {
+    const harmonyOnlyPatch = {
       chords: [{ bar: 4, degree: 'iv' as const }],
       modifiers: [{ id: 'modal_borrow' as const, enabled: true, amount: 0.8 }],
     };
+    const harmonyDemo = applyCoachPatch(project, harmonyOnlyPatch);
+    expect(harmonyDemo.baked).toBe(true);
+    expect(harmonyDemo.bakedMelody).toEqual(project.bakedMelody);
 
-    const demo = applyCoachPatch(project, patch);
-    expect(demo.baked).toBe(true);
-    expect(demo.bakedMelody).toEqual(project.bakedMelody);
-    expect(demo.blocks).toEqual(project.blocks);
-    expect(demo.chain.chords[3].degree).toBe('iv');
-    expect(project.chain.chords[3].degree).not.toBe('iv');
+    const melodyPatch = {
+      melodyBars: [
+        {
+          bar: 4,
+          notes: [
+            { stepInBar: 0, midi: 74, duration: 4 },
+            { stepInBar: 8, midi: 72, duration: 8 },
+          ],
+        },
+      ],
+    };
+    const melodyDemo = applyCoachPatch(project, melodyPatch);
+    expect(melodyDemo.bakedMelody.filter((n) => n.step < 48)).toEqual(
+      project.bakedMelody.filter((n) => n.step < 48)
+    );
+    expect(melodyDemo.bakedMelody.filter((n) => n.step >= 48)).toMatchObject([
+      { step: 48, midi: 74, duration: 4 },
+      { step: 56, midi: 72, duration: 8 },
+    ]);
+    // 원본 project 는 변경되지 않는다.
+    expect(project.bakedMelody.find((n) => n.step === 48)?.midi).toBe(77);
 
-    const summary = describeCoachPatch(project, demo, patch);
-    expect(summary.length).toBe(2);
+    const summary = describeCoachPatch(project, melodyDemo, melodyPatch);
+    expect(summary[0]).toContain('멜로디 예시 (4마디)');
     expect(describeCoachPatch(project, applyCoachPatch(project, {}), {})).toEqual([]);
   });
 });

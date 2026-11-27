@@ -945,6 +945,10 @@ function init(): void {
         changeDescriptions,
         warnings: res.warnings,
         demoProject,
+        hasHarmonyDemo: Boolean(
+          res.response.patch?.chords?.length || res.response.patch?.modifiers?.length
+        ),
+        hasMelodyDemo: Boolean(res.response.patch?.melodyBars?.length),
       };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -1034,10 +1038,10 @@ function init(): void {
           btn.classList.toggle('active', btn.dataset.geminiPreview === geminiUiState.activePreview);
         });
       },
-      onOpenManualEditLayer: () => {
-        if (project.activeLayer === 'L2') return;
+      onOpenManualEditLayer: (layer) => {
+        if (project.activeLayer === layer) return;
         const next = cloneProject(project);
-        next.activeLayer = 'L2';
+        next.activeLayer = layer;
         updateState(next);
       },
       onDismissGeminiSuggestion: () => {

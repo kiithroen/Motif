@@ -1,6 +1,6 @@
 import coachRaw from '../data/coach.json';
 import type { DiagnosisReport } from './analyzer';
-import type { CompiledSong } from './compiler';
+import { type CompiledSong, compileSong } from './compiler';
 import {
   PRESETS,
   type ModifierId,
@@ -39,13 +39,21 @@ export interface CoachConfigData {
   };
   limits: {
     maxPromptLength: number;
-    maxDemoChords: number;
+    maxDemoChordsByBars: Record<'4' | '8', number>;
     maxDemoModifiers: number;
+    maxDemoMelodyBars: number;
+    maxDemoMelodyNotesPerBar: number;
+    minMelodyMidi: number;
+    maxMelodyMidi: number;
   };
   quickPrompts: CoachQuickPrompt[];
 }
 
 export const COACH_CONFIG = coachRaw as CoachConfigData;
+
+export function getMaxDemoChords(bars: 4 | 8): number {
+  return COACH_CONFIG.limits.maxDemoChordsByBars[String(bars) as '4' | '8'] ?? 2;
+}
 
 export interface CoachChordPatch {
   bar: number;
@@ -58,9 +66,21 @@ export interface CoachModifierPatch {
   amount?: number;
 }
 
+export interface CoachDemoNote {
+  stepInBar: number;
+  midi: number;
+  duration: number;
+}
+
+export interface CoachMelodyBarPatch {
+  bar: number;
+  notes: CoachDemoNote[];
+}
+
 export interface CoachPatch {
   chords?: CoachChordPatch[];
   modifiers?: CoachModifierPatch[];
+  melodyBars?: CoachMelodyBarPatch[];
 }
 
 export interface CoachResponse {
@@ -110,6 +130,17 @@ export interface CoachContextPayload {
     clashCount: number;
     lastNote: string | null;
   };
+  melodyByBar: Array<{
+    bar: number;
+    notes: Array<{
+      stepInBar: number;
+      duration: number;
+      midi: number;
+      note: string;
+      korean: string;
+      role: string;
+    }>;
+  }>;
   analysis: {
     score: number;
     summary: string;
@@ -152,6 +183,23 @@ export function buildCoachContext(
   const maxMidi = midis.length > 0 ? Math.max(...midis) : null;
   const lastNote = melody.length > 0 ? melody[melody.length - 1] : null;
 
+  const melodyByBar = Array.from({ length: project.bars }, (_, barIdx) => {
+    const barNotes = melody
+      .filter((n) => Math.floor(n.step / 16) === barIdx)
+      .map((n) => ({
+        stepInBar: n.step % 16,
+        duration: n.duration,
+        midi: n.midi,
+        note: noteName(n.midi),
+        korean: koreanNoteName(n.midi),
+        role: n.role,
+      }));
+    return {
+      bar: barIdx + 1,
+      notes: barNotes,
+    };
+  });
+
   return {
     song: {
       keyRoot: project.keyRoot,
@@ -190,6 +238,7 @@ export function buildCoachContext(
       clashCount: melody.filter((n) => n.role === 'clash').length,
       lastNote: lastNote ? formatPitchLabel(lastNote.midi) : null,
     },
+    melodyByBar,
     analysis: {
       score: report.score,
       summary: report.summary,
@@ -213,10 +262,11 @@ export function buildCoachContext(
   };
 }
 
-export function buildCoachResponseSchema(): Record<string, unknown> {
+export function buildCoachResponseSchema(bars: 4 | 8 = 4): Record<string, unknown> {
   const modifierIds = PRESETS.modifiers.map((m) => m.id);
   const degrees = [...PRESETS.availableDegrees];
   const limits = COACH_CONFIG.limits;
+  const maxChords = getMaxDemoChords(bars);
 
   return {
     type: 'object',
@@ -251,14 +301,14 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
         properties: {
           chords: {
             type: 'array',
-            maxItems: limits.maxDemoChords,
+            maxItems: maxChords,
             items: {
               type: 'object',
               properties: {
                 bar: {
                   type: 'integer',
                   minimum: 1,
-                  maximum: 8,
+                  maximum: bars,
                   description: '1부터 시작하는 마디 번호',
                 },
                 degree: {
@@ -284,6 +334,54 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
               additionalProperties: false,
             },
           },
+          melodyBars: {
+            type: 'array',
+            maxItems: limits.maxDemoMelodyBars,
+            description: '특정 마디 멜로디 대안 비교 청취용 (최대 2마디)',
+            items: {
+              type: 'object',
+              properties: {
+                bar: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: bars,
+                  description: '1부터 시작하는 마디 번호',
+                },
+                notes: {
+                  type: 'array',
+                  minItems: 1,
+                  maxItems: limits.maxDemoMelodyNotesPerBar,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      stepInBar: {
+                        type: 'integer',
+                        minimum: 0,
+                        maximum: 15,
+                        description: '마디 내 16분음표 위치 (0=1박, 4=2박, 8=3박, 12=4박)',
+                      },
+                      midi: {
+                        type: 'integer',
+                        minimum: limits.minMelodyMidi,
+                        maximum: limits.maxMelodyMidi,
+                        description: 'MIDI 음높이 (60=C4 ~ 84=C6)',
+                      },
+                      duration: {
+                        type: 'integer',
+                        minimum: 1,
+                        maximum: 16,
+                        description: '16분음표 칸 길이 (2=8분음표, 4=4분음표)',
+                      },
+                    },
+                    required: ['stepInBar', 'midi', 'duration'],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ['bar', 'notes'],
+              additionalProperties: false,
+            },
+          },
         },
         additionalProperties: false,
       },
@@ -293,16 +391,17 @@ export function buildCoachResponseSchema(): Record<string, unknown> {
   };
 }
 
-export function buildCoachSystemPrompt(): string {
-  const { maxDemoChords, maxDemoModifiers } = COACH_CONFIG.limits;
+export function buildCoachSystemPrompt(bars: 4 | 8 = 4): string {
+  const maxChords = getMaxDemoChords(bars);
+  const { maxDemoModifiers, maxDemoMelodyBars } = COACH_CONFIG.limits;
   return [
     '너는 곡을 대신 작곡하거나 수정하지 않는 한국어 음악 이론 튜터다.',
     '도레미 계이름과 기초 기타 코드만 아는 초보자에게 화성·선율·리듬 원리를 계이름(도·레·미·파·솔·라·시)과 느낌으로 쉽게 설명한다.',
-    '사용자의 L3 멜로디와 전체 곡 구조(키·조성·마디·BPM·L1 블록)는 절대 대신 덮어쓰거나 갈아엎지 않는다.',
-    `비교 청취 예시(patch)가 필요할 때만 마디 코드 최대 ${maxDemoChords}개(chords) 또는 L2 변형 카드 최대 ${maxDemoModifiers}개(modifiers)만 국소 대안으로 제안한다.`,
-    '가능하면 사용자가 직접 손으로 고쳐볼 수 있도록 manualSteps 에 구체적인 L2/L3 조작 안내를 1~3줄 적는다.',
+    '사용자의 원곡과 L3 멜로디는 절대 자동으로 덮어쓰지 않는다.',
+    `비교 청취 예시(patch)가 필요할 때만 마디 코드 최대 ${maxChords}개(chords), L2 변형 카드 최대 ${maxDemoModifiers}개(modifiers), 국소 멜로디 대안 최대 ${maxDemoMelodyBars}마디(melodyBars)만 제안한다.`,
+    'melodyByBar 의 실제 음표(계이름·박자·역할)를 근거로 멜로디 조언을 작성하고, 사용자가 L2/L3에서 직접 고쳐볼 수 있도록 manualSteps 에 마디 번호와 계이름(예: 4마디 마지막 음을 미로 착지)을 1~3줄 적는다.',
     '반드시 응답 스키마에 맞는 순수 JSON 객체 하나만 출력한다(마크다운 코드블록 금지).',
-    'patch 를 포함할 때는 반드시 제공된 catalog 의 availableDegrees 와 modifiers.id 만 사용하며, chords[].bar 는 1부터 시작하는 마디 번호를 쓴다.',
+    'patch 를 포함할 때는 반드시 제공된 catalog 의 availableDegrees 와 modifiers.id 만 사용하며, chords[].bar 와 melodyBars[].bar 는 1부터 시작하는 마디 번호를 쓴다.',
   ].join('\n');
 }
 
@@ -312,20 +411,20 @@ export function buildCoachUserPrompt(
   userRequest?: string
 ): string {
   const bakedNotice = context.song.baked
-    ? '주의: 현재 곡은 사용자가 직접 편집한 L3 멜로디(baked=true) 상태이므로 멜로디를 재생성하지 않고 화성(chords/modal_borrow) 비교 예시와 텍스트 기반 멜로디 조언만 우선 제공하라.'
-    : '참고: 현재 곡은 L1/L2 규칙 상태(baked=false)이므로 L2 코드·변형 카드 비교 예시로 차이를 들려줄 수 있다.';
+    ? '참고: 현재 곡은 사용자가 직접 편집한 L3 멜로디(baked=true) 상태다. 원곡은 보존되므로 필요 시 1~2마디 멜로디 대안(melodyBars)이나 화성 대안(chords)을 비교 예시로 들려주고 직접 수정할 manualSteps 를 안내하라.'
+    : '참고: 현재 곡은 L1/L2 규칙 상태(baked=false)이므로 L2 코드·변형 카드 또는 국소 멜로디 비교 예시로 차이를 들려줄 수 있다.';
 
   const instruction =
     mode === 'explain'
       ? [
           '요청 유형: 로컬 이론 분석 리포트 해설.',
-          '현재 곡 상태와 analysis 리포트를 보고, 왜 점수가 이렇게 나왔는지와 가장 핵심적인 이론 원리를 초보자 눈높이로 설명하라.',
+          '현재 곡 상태, melodyByBar, analysis 리포트를 보고 왜 점수가 이렇게 나왔는지와 핵심 이론 원리를 초보자 눈높이로 설명하라.',
           '청각 비교가 도움이 되면 국소 비교 예시(patch)와 사용자가 직접 해볼 manualSteps 를 제안하라.',
         ].join('\n')
       : [
           '요청 유형: 작곡 이론 질문·대안 비교.',
           `사용자 질문: "${(userRequest ?? '').trim()}"`,
-          '질문에 대한 이론 원리를 먼저 설명하고, 사용자가 직접 바꿔 볼 manualSteps 와 필요 시 국소 비교 청취 예시(patch)를 제안하라.',
+          '질문에 대한 화성·멜로디 이론 원리를 먼저 설명하고, 사용자가 직접 바꿔 볼 manualSteps 와 필요 시 국소 비교 청취 예시(patch)를 제안하라.',
         ].join('\n');
 
   return `${instruction}\n${bakedNotice}\n\n현재 곡 및 허용 카탈로그 JSON:\n${JSON.stringify(context)}`;
@@ -376,6 +475,7 @@ export function sanitizeCoachPatch(
   }
 
   const limits = COACH_CONFIG.limits;
+  const maxChords = getMaxDemoChords(currentBars);
   const validModifiers = new Set<string>(PRESETS.modifiers.map((m) => m.id));
   const validDegrees = new Set<string>(PRESETS.availableDegrees);
 
@@ -404,11 +504,11 @@ export function sanitizeCoachPatch(
         }
         byBar.set(bar, degree as DegreeSymbol);
       }
-      if (byBar.size > limits.maxDemoChords) {
-        warnings.push(`비교용 마디 코드 대안은 최대 ${limits.maxDemoChords}개까지만 허용해 나머지를 제외했다.`);
+      if (byBar.size > maxChords) {
+        warnings.push(`비교용 마디 코드 대안은 최대 ${maxChords}개까지만 허용해 나머지를 제외했다.`);
       }
       const limitedChords = Array.from(byBar.entries())
-        .slice(0, limits.maxDemoChords)
+        .slice(0, maxChords)
         .sort((a, b) => a[0] - b[0])
         .map(([bar, degree]) => ({ bar, degree }));
       if (limitedChords.length > 0) {
@@ -460,6 +560,94 @@ export function sanitizeCoachPatch(
       const limitedMods = Array.from(byId.values()).slice(0, limits.maxDemoModifiers);
       if (limitedMods.length > 0) {
         patch.modifiers = limitedMods;
+        hasAnyField = true;
+      }
+    }
+  }
+
+  if (raw.melodyBars !== undefined) {
+    if (!Array.isArray(raw.melodyBars)) {
+      warnings.push('멜로디 비교 항목 형식이 올바르지 않아 제외했다.');
+    } else {
+      const byBar = new Map<number, CoachDemoNote[]>();
+      for (const item of raw.melodyBars) {
+        if (!isPlainObject(item)) {
+          warnings.push('잘못된 멜로디 마디 항목을 제외했다.');
+          continue;
+        }
+        const bar = item.bar;
+        if (typeof bar !== 'number' || !Number.isInteger(bar) || bar < 1 || bar > currentBars) {
+          warnings.push(`범위를 벗어난 멜로디 비교 마디(${String(bar)})를 제외했다.`);
+          continue;
+        }
+        if (!Array.isArray(item.notes)) {
+          warnings.push(`${bar}마디 멜로디 음표 목록이 배열이 아니어서 제외했다.`);
+          continue;
+        }
+
+        const byStep = new Map<number, CoachDemoNote>();
+        for (const rawNote of item.notes) {
+          if (!isPlainObject(rawNote)) {
+            warnings.push(`${bar}마디 잘못된 음표 항목을 제외했다.`);
+            continue;
+          }
+          const stepInBar = rawNote.stepInBar;
+          if (typeof stepInBar !== 'number' || !Number.isInteger(stepInBar) || stepInBar < 0 || stepInBar > 15) {
+            warnings.push(`${bar}마디 범위를 벗어난 박자 위치(${String(stepInBar)}) 음표를 제외했다.`);
+            continue;
+          }
+          if (typeof rawNote.midi !== 'number' || !Number.isFinite(rawNote.midi)) {
+            warnings.push(`${bar}마디 유효하지 않은 음높이(midi) 음표를 제외했다.`);
+            continue;
+          }
+          if (typeof rawNote.duration !== 'number' || !Number.isFinite(rawNote.duration)) {
+            warnings.push(`${bar}마디 유효하지 않은 길이(duration) 음표를 제외했다.`);
+            continue;
+          }
+
+          const roundedMidi = Math.round(rawNote.midi);
+          const clampedMidi = clamp(roundedMidi, limits.minMelodyMidi, limits.maxMelodyMidi);
+          if (clampedMidi !== roundedMidi) {
+            warnings.push(`${bar}마디 음높이를 피아노롤 범위(${limits.minMelodyMidi}~${limits.maxMelodyMidi})로 맞췄다.`);
+          }
+
+          const maxStepDur = 16 - stepInBar;
+          const roundedDur = Math.round(rawNote.duration);
+          const clampedDur = clamp(roundedDur, 1, maxStepDur);
+          if (roundedDur < 1 || roundedDur > 16) {
+            warnings.push(`${bar}마디 음표 길이를 허용 범위로 맞췄다.`);
+          }
+
+          byStep.set(stepInBar, {
+            stepInBar,
+            midi: clampedMidi,
+            duration: clampedDur,
+          });
+        }
+
+        const sortedNotes = Array.from(byStep.values()).sort((a, b) => a.stepInBar - b.stepInBar);
+        if (sortedNotes.length > limits.maxDemoMelodyNotesPerBar) {
+          warnings.push(
+            `${bar}마디 비교 멜로디는 최대 ${limits.maxDemoMelodyNotesPerBar}음까지만 허용해 나머지를 제외했다.`
+          );
+        }
+        const limitedNotes = sortedNotes.slice(0, limits.maxDemoMelodyNotesPerBar);
+        if (limitedNotes.length > 0) {
+          byBar.set(bar, limitedNotes);
+        }
+      }
+
+      if (byBar.size > limits.maxDemoMelodyBars) {
+        warnings.push(
+          `비교용 멜로디 대안은 최대 ${limits.maxDemoMelodyBars}마디까지만 허용해 나머지를 제외했다.`
+        );
+      }
+      const limitedMelodyBars = Array.from(byBar.entries())
+        .slice(0, limits.maxDemoMelodyBars)
+        .sort((a, b) => a[0] - b[0])
+        .map(([bar, notes]) => ({ bar, notes }));
+      if (limitedMelodyBars.length > 0) {
+        patch.melodyBars = limitedMelodyBars;
         hasAnyField = true;
       }
     }
@@ -548,6 +736,34 @@ export function applyCoachPatch(project: SongProject, patch: CoachPatch): SongPr
     }
   }
 
+  if (patch.melodyBars && patch.melodyBars.length > 0) {
+    const baseNotes =
+      next.baked && next.bakedMelody.length > 0
+        ? next.bakedMelody.map((n) => ({ ...n }))
+        : compileSong(next).melody.map(({ role: _role, ...n }) => ({ ...n }));
+
+    const replaceBars = new Set(patch.melodyBars.map((mb) => mb.bar - 1));
+    const kept = baseNotes.filter((n) => !replaceBars.has(Math.floor(n.step / 16)));
+
+    for (const mb of patch.melodyBars) {
+      const barBaseStep = (mb.bar - 1) * 16;
+      mb.notes.forEach((n, idx) => {
+        kept.push({
+          id: `demo_m_${mb.bar}_${idx}`,
+          midi: n.midi,
+          step: barBaseStep + n.stepInBar,
+          duration: Math.min(n.duration, 16 - n.stepInBar),
+          velocity: 0.82,
+          origin: 'user',
+        });
+      });
+    }
+
+    kept.sort((a, b) => a.step - b.step || a.midi - b.midi);
+    next.bakedMelody = kept;
+    next.baked = true;
+  }
+
   return next;
 }
 
@@ -582,6 +798,15 @@ export function describeCoachPatch(before: SongProject, after: SongProject, patc
       lines.push(
         `변형 카드 예시 [${modName}] 강도: ${Math.round(beforeMod.amount * 100)}% → ${Math.round(afterMod.amount * 100)}%`
       );
+    }
+  }
+
+  if (patch.melodyBars) {
+    for (const mb of patch.melodyBars) {
+      const pitchSeq = mb.notes.map((n) => formatPitchLabel(n.midi)).join(' → ');
+      if (pitchSeq) {
+        lines.push(`멜로디 예시 (${mb.bar}마디): ${pitchSeq}`);
+      }
     }
   }
 
