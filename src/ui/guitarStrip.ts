@@ -115,7 +115,6 @@ export function renderGuitarStrip(
           <div class="chord-meta">
             <span class="chord-bar">${idx + 1}마디</span>
             <span class="chord-symbol">${ch.symbol}</span>
-            <span class="chord-solfege">음: ${ch.koreanRoot}</span>
             <span class="chord-degree-badge">${ch.degree}</span>
           </div>
           ${buildChordVisualSvg(ch, chordView)}

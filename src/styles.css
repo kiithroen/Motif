@@ -252,12 +252,6 @@ button, select, input {
   font-weight: 800;
 }
 
-.chord-solfege {
-  font-size: 12px;
-  color: var(--green);
-  font-weight: 600;
-}
-
 .chord-degree-badge {
   display: inline-block;
   padding: 1px 6px;
