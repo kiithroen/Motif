@@ -78,6 +78,7 @@ const CHORD_SWAP_OPTIONS: Array<{ degree: DegreeSymbol; labelKo: string }> = [
   { degree: 'IV', labelKo: 'F (IV)' },
   { degree: 'iv', labelKo: 'Fm (iv)' },
   { degree: 'V', labelKo: 'G (V)' },
+  { degree: 'V7', labelKo: 'G7 (V7)' },
   { degree: 'vi', labelKo: 'Am (vi)' },
 ];
 
@@ -181,7 +182,8 @@ function renderChordTonePickBody(
   compiled: CompiledSong,
   targetBars: number[],
   selectedPickBar: number,
-  chordView: ChordInstrument
+  chordView: ChordInstrument,
+  hidePickLabels = false
 ): string {
   const safeSelectedBar = targetBars.includes(selectedPickBar) ? selectedPickBar : targetBars[0] ?? 0;
 
@@ -204,7 +206,7 @@ function renderChordTonePickBody(
           <div class="pick-chord-info">
             <span class="chord-bar">${b + 1}마디 코드</span>
             <strong class="chord-symbol">${chord.symbol}</strong>
-            <span class="pick-tones">구성음: ${tones}</span>
+            <span class="pick-tones">${hidePickLabels ? '귀로 어울리는 음 찾기' : `구성음: ${tones}`}</span>
             <span class="pick-current ${statusCls}">현재 음: ${noteLabel} · ${statusText}</span>
           </div>
           ${buildChordVisualSvg(chord, chordView)}
@@ -223,17 +225,24 @@ function renderChordTonePickBody(
     const isSelected = activeNote ? wrapPc(activeNote.midi) === wrapPc(k.midi) && activeNote.midi === k.midi : false;
     const cls = [
       'solfege-key',
-      isChordTone ? 'chord-tone' : '',
-      role === 'clash' ? 'clash' : '',
+      !hidePickLabels && isChordTone ? 'chord-tone' : '',
+      !hidePickLabels && role === 'clash' ? 'clash' : '',
       isSelected ? 'selected' : '',
     ]
       .filter(Boolean)
       .join(' ');
+    const subLabel = hidePickLabels
+      ? '눌러서 듣기'
+      : isChordTone
+        ? '구성음'
+        : role === 'clash'
+          ? '반음 충돌'
+          : '음계음';
     return `
       <button class="${cls}" data-pick-midi="${k.midi}" type="button">
         <strong>${k.label}</strong>
         <span>${k.en}</span>
-        <em>${isChordTone ? '구성음' : role === 'clash' ? '반음 충돌' : '음계음'}</em>
+        <em>${subLabel}</em>
       </button>
     `;
   }).join('');
@@ -396,7 +405,14 @@ export function renderBasicsView(
 
   let workspaceHtml = '';
   if (lesson.workspaceKind === 'chord_tone_pick') {
-    workspaceHtml = renderChordTonePickBody(project, compiled, targetPickBars, activePickBar, state.chordView);
+    workspaceHtml = renderChordTonePickBody(
+      project,
+      compiled,
+      targetPickBars,
+      activePickBar,
+      state.chordView,
+      Boolean(lesson.hidePickLabels)
+    );
   } else if (lesson.workspaceKind === 'chord_swap') {
     workspaceHtml = renderChordSwapBody(compiled, state.chordView);
   } else if (lesson.workspaceKind === 'classic_arrange') {

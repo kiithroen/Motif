@@ -19,6 +19,9 @@ export type BasicLessonRule =
   | { type: 'bar_downbeat_chord_tones'; bars: number[]; labelKo: string }
   | { type: 'no_issue'; issueKind: IssueKind; labelKo: string }
   | { type: 'min_non_downbeat_scale_notes'; minCount: number; labelKo: string }
+  | { type: 'min_notes_in_bar'; barIndex: number; minCount: number; labelKo: string }
+  | { type: 'min_strong_beat_notes'; minCount: number; labelKo: string }
+  | { type: 'min_syncopated_notes'; minCount: number; labelKo: string }
   | { type: 'min_distinct_durations'; minCount: number; labelKo: string }
   | { type: 'min_rest_ratio'; minRatio: number; labelKo: string }
   | { type: 'last_note_pc'; allowedPcs: number[]; labelKo: string }
@@ -80,6 +83,7 @@ export interface BasicLessonDefinition {
   annotations?: LessonAnnotation[];
   workspaceKind: BasicLessonWorkspaceKind;
   pickBars?: number[];
+  hidePickLabels?: boolean;
   showDurationPicker?: boolean;
   goalSummaryKo: string;
   hintKo: string;
@@ -235,6 +239,33 @@ function evaluateRule(
         ).length >= rule.minCount
       );
     }
+
+    case 'min_notes_in_bar': {
+      const scalePcs = new Set(getScalePitchClasses(project.keyRoot, project.mode));
+      const barStart = rule.barIndex * 16;
+      const barEnd = barStart + 16;
+      return (
+        compiled.melody.filter(
+          (n) =>
+            n.step >= barStart &&
+            n.step < barEnd &&
+            n.role !== 'clash' &&
+            (scalePcs.has(wrapPc(n.midi)) || n.role === 'chord_tone')
+        ).length >= rule.minCount
+      );
+    }
+
+    case 'min_strong_beat_notes':
+      return (
+        compiled.melody.filter((n) => n.step % 8 === 0 && n.role === 'chord_tone').length >=
+        rule.minCount
+      );
+
+    case 'min_syncopated_notes':
+      return (
+        compiled.melody.filter((n) => n.step % 4 === 2 && n.role !== 'clash').length >=
+        rule.minCount
+      );
 
     case 'min_distinct_durations':
       return new Set(compiled.melody.map((n) => n.duration)).size >= rule.minCount;

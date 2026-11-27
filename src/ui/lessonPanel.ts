@@ -88,7 +88,7 @@ export function renderLessonCourseMap(
         <div class="course-hero-info">
           <div class="lesson-stage-badge">실전 미션 커리큘럼 · 4유닛 ${totalCount}강</div>
           <h1 class="learn-title" style="margin-top:6px;">L1 블록 → L2 변형 체인 → L3 피아노롤 & 이론 코치 실전</h1>
-          <p class="learn-subtitle">기초 원리를 실제 작곡 샌드박스에 적용해 본다. 블록 조합부터 8마디 조바꿈까지 20개 미션으로 손에 익혀 보자.</p>
+          <p class="learn-subtitle">기초 원리를 실제 작곡 샌드박스에 적용해 본다. 블록 조합부터 8마디 조바꿈까지 ${totalCount}개 미션으로 손에 익혀 보자.</p>
           <div class="course-hero-progress">
             <div class="progress-track" style="flex:1;"><div class="progress-fill" style="width:${pct}%"></div></div>
             <strong>${doneCount} / ${totalCount}강 완료 (${pct}%)</strong>

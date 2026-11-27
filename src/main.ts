@@ -671,7 +671,7 @@ function init(): void {
       const subText =
         appMode === 'basics'
           ? '귀로 원리를 듣고 내 손으로 한 음씩 쌓는 기초 학습 코스'
-          : '4유닛 20강 실전 미션에서 원하는 단원을 골라 도전한다';
+          : `4유닛 ${LESSONS.length}강 실전 미션에서 원하는 단원을 골라 도전한다`;
       topbarEl.innerHTML = `
         <div class="topbar-main">
           <div class="brand">

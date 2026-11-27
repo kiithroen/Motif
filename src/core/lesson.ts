@@ -31,7 +31,8 @@ export type LessonRule =
   | { type: 'modifier_enabled'; modifierId: ModifierId; minAmount?: number; labelKo: string }
   | { type: 'any_modifier_enabled'; modifierIds: ModifierId[]; labelKo: string }
   | { type: 'bars_equals'; bars: 4 | 8; labelKo: string }
-  | { type: 'second_half_climax'; labelKo: string };
+  | { type: 'second_half_climax'; labelKo: string }
+  | { type: 'has_user_edited_notes'; minCount: number; labelKo: string };
 
 export interface LessonModifierOverride {
   id: ModifierId;
@@ -224,6 +225,12 @@ function evaluateRule(
       if (firstHalf.length === 0 || secondHalf.length === 0) return false;
       return Math.max(...secondHalf) > Math.max(...firstHalf);
     }
+
+    case 'has_user_edited_notes':
+      return (
+        project.baked &&
+        project.bakedMelody.filter((n) => n.origin === 'user').length >= rule.minCount
+      );
   }
 }
 

@@ -8,13 +8,13 @@ import {
   getLessonUnits,
 } from '../src/core/lesson';
 
-describe('Practical 20-mission curriculum (4 units x 5 missions)', () => {
-  it('organizes 20 missions into 4 units and starts every mission unsolved', () => {
-    expect(LESSONS).toHaveLength(20);
+describe('Practical 12-mission curriculum (4 units x 3 missions)', () => {
+  it('organizes 12 missions into 4 units and starts every mission unsolved', () => {
+    expect(LESSONS).toHaveLength(12);
     const units = getLessonUnits();
     expect(units).toHaveLength(4);
     for (const u of units) {
-      expect(u.lessons).toHaveLength(5);
+      expect(u.lessons).toHaveLength(3);
     }
 
     for (const lesson of LESSONS) {
@@ -23,198 +23,142 @@ describe('Practical 20-mission curriculum (4 units x 5 missions)', () => {
     }
   });
 
-  it('Unit 1 (1..5): L1 blocks & genre design', () => {
+  it('Unit 1 (1..3): L1 blocks & genre design', () => {
     // 1
     const m1 = createLessonProject('lesson_1_groove');
-    m1.blocks.energy = 0.85;
-    expect(evaluateLesson('lesson_1_groove', m1).passed).toBe(false);
     m1.blocks.grooveId = 'strum_8beat';
+    m1.blocks.energy = 0.8;
+    expect(evaluateLesson('lesson_1_groove', m1).passed).toBe(false);
+    m1.blocks.density = 0.7;
     expect(evaluateLesson('lesson_1_groove', m1).passed).toBe(true);
 
     // 2
-    const m2 = createLessonProject('m02_lofi_setup');
-    m2.blocks.grooveId = 'lofi_chill';
-    expect(evaluateLesson('m02_lofi_setup', m2).passed).toBe(false);
-    m2.blocks.progressionId = 'lofi_2516';
+    const m2 = createLessonProject('m02_mode_progression');
+    m2.mode = 'minor';
+    m2.blocks.grooveId = 'ballad_arp';
+    expect(evaluateLesson('m02_mode_progression', m2).passed).toBe(false);
+    m2.blocks.progressionId = 'sad_6415';
     m2.chain = unpackBlocksToChain(m2.blocks, m2.bars, m2.chain.modifiers);
-    expect(evaluateLesson('m02_lofi_setup', m2).passed).toBe(true);
+    expect(evaluateLesson('m02_mode_progression', m2).passed).toBe(true);
 
     // 3
-    const m3 = createLessonProject('m03_synth_energy');
-    m3.blocks.grooveId = 'bouncy_pop';
-    m3.blocks.energy = 0.85;
-    expect(evaluateLesson('m03_synth_energy', m3).passed).toBe(false);
-    m3.blocks.density = 0.75;
-    expect(evaluateLesson('m03_synth_energy', m3).passed).toBe(true);
+    const m3 = createLessonProject('m03_eight_bar_contour');
+    m3.bars = 8;
+    m3.chain = unpackBlocksToChain(m3.blocks, 8, m3.chain.modifiers);
+    m3.blocks.contourId = 'call_response';
+    expect(evaluateLesson('m03_eight_bar_contour', m3).passed).toBe(false);
+    m3.blocks.grooveId = 'strum_8beat';
+    expect(evaluateLesson('m03_eight_bar_contour', m3).passed).toBe(true);
+  });
 
+  it('Unit 2 (4..6): L2 modifier chains & L3 bridge', () => {
     // 4
-    const m4 = createLessonProject('m04_minor_ballad');
-    m4.mode = 'minor';
-    m4.blocks.grooveId = 'ballad_arp';
-    expect(evaluateLesson('m04_minor_ballad', m4).passed).toBe(false);
-    m4.blocks.progressionId = 'sad_6415';
-    m4.chain = unpackBlocksToChain(m4.blocks, m4.bars, m4.chain.modifiers);
-    expect(evaluateLesson('m04_minor_ballad', m4).passed).toBe(true);
+    const m4 = createLessonProject('m04_chord_motif');
+    m4.chain.chords[3].degree = 'iv';
+    expect(evaluateLesson('m04_chord_motif', m4).passed).toBe(false);
+    m4.chain.modifiers = m4.chain.modifiers.map((m) =>
+      m.id === 'motif_repeat' ? { ...m, enabled: true, amount: 0.75 } : m
+    );
+    expect(evaluateLesson('m04_chord_motif', m4).passed).toBe(true);
 
     // 5
-    const m5 = createLessonProject('m05_l1_eight_bars');
-    m5.bars = 8;
-    m5.chain = unpackBlocksToChain(m5.blocks, 8, m5.chain.modifiers);
-    m5.blocks.contourId = 'call_response';
-    expect(evaluateLesson('m05_l1_eight_bars', m5).passed).toBe(false);
-    m5.blocks.grooveId = 'strum_8beat';
-    expect(evaluateLesson('m05_l1_eight_bars', m5).passed).toBe(true);
-  });
-
-  it('Unit 2 (6..10): L2 chords & modifier chains', () => {
-    // 6
-    const m6 = createLessonProject('lesson_2_chord_mood');
-    m6.chain.chords[3].degree = 'V7';
-    expect(evaluateLesson('lesson_2_chord_mood', m6).passed).toBe(false);
-    m6.chain.chords[3].degree = 'iv';
-    expect(evaluateLesson('lesson_2_chord_mood', m6).passed).toBe(true);
-
-    // 7
-    const m7 = createLessonProject('lesson_5_motif_var');
-    m7.chain.modifiers = m7.chain.modifiers.map((m) =>
-      m.id === 'passing_tones' ? { ...m, enabled: true } : m
-    );
-    expect(evaluateLesson('lesson_5_motif_var', m7).passed).toBe(false);
-    m7.chain.modifiers = m7.chain.modifiers.map((m) =>
-      m.id === 'motif_repeat' ? { ...m, enabled: true, amount: 0.75 } : m
-    );
-    expect(evaluateLesson('lesson_5_motif_var', m7).passed).toBe(true);
-
-    // 8
-    const m8 = createLessonProject('m08_syncopation');
-    m8.blocks.grooveId = 'bouncy_pop';
-    expect(evaluateLesson('m08_syncopation', m8).passed).toBe(false);
-    m8.chain.modifiers = m8.chain.modifiers.map((m) =>
+    const m5 = createLessonProject('m05_chain_combo');
+    m5.blocks.progressionId = 'lofi_2516';
+    m5.chain = unpackBlocksToChain(m5.blocks, m5.bars, m5.chain.modifiers);
+    m5.chain.modifiers = m5.chain.modifiers.map((m) =>
       m.id === 'syncopation' ? { ...m, enabled: true, amount: 0.7 } : m
     );
-    expect(evaluateLesson('m08_syncopation', m8).passed).toBe(true);
-
-    // 9
-    const m9 = createLessonProject('m09_passing_cadence');
-    m9.chain.modifiers = m9.chain.modifiers.map((m) =>
-      m.id === 'passing_tones' ? { ...m, enabled: true, amount: 0.7 } : m
+    expect(evaluateLesson('m05_chain_combo', m5).passed).toBe(false);
+    m5.chain.modifiers = m5.chain.modifiers.map((m) =>
+      m.id === 'passing_tones' ? { ...m, enabled: true, amount: 0.65 } : m
     );
-    expect(evaluateLesson('m09_passing_cadence', m9).passed).toBe(false);
-    m9.chain.modifiers = m9.chain.modifiers.map((m) =>
-      m.id === 'cadence_resolve' ? { ...m, enabled: true, amount: 0.9 } : m
-    );
-    expect(evaluateLesson('m09_passing_cadence', m9).passed).toBe(true);
+    expect(evaluateLesson('m05_chain_combo', m5).passed).toBe(true);
 
+    // 6: L2 -> L3 브릿지 (has_user_edited_notes)
+    const m6 = createLessonProject('m06_l2_to_l3_bridge');
+    m6.chain.chords[3].degree = 'iv';
+    expect(evaluateLesson('m06_l2_to_l3_bridge', m6).passed).toBe(false);
+    const compiled6 = compileSong(m6);
+    m6.baked = true;
+    m6.bakedMelody = compiled6.melody.map((n, idx) =>
+      idx === 0 ? { ...n, origin: 'user' as const } : { ...n, origin: 'base' as const }
+    );
+    const res6 = evaluateLesson('m06_l2_to_l3_bridge', m6);
+    expect(res6.passed, JSON.stringify(res6.checks)).toBe(true);
+  });
+
+  it('Unit 3 (7..9): L3 precision editing, coach cleanup & manual motif variation', () => {
+    // 7: 잦은 큰 도약 교정
+    const m7 = createLessonProject('m07_range_leaps');
+    const rep7 = analyzeSong(compileSong(m7), m7);
+    expect(rep7.issues.some((i) => i.kind === 'excessive_leaps')).toBe(true);
+    m7.bakedMelody[1] = { ...m7.bakedMelody[1], midi: 64 }; // E4
+    m7.bakedMelody[3] = { ...m7.bakedMelody[3], midi: 67 }; // G4
+    expect(evaluateLesson('m07_range_leaps', m7).passed).toBe(true);
+
+    // 8: 복합 결함(충돌 + 이탈음 + 열린 종지) 진단·개선
+    const m8 = createLessonProject('m08_coach_cleanup');
+    const rep8 = analyzeSong(compileSong(m8), m8);
+    expect(rep8.issues.some((i) => i.kind === 'clash')).toBe(true);
+    expect(rep8.issues.some((i) => i.kind === 'out_of_scale')).toBe(true);
+    expect(rep8.issues.some((i) => i.kind === 'weak_cadence')).toBe(true);
+    m8.bakedMelody[0] = { ...m8.bakedMelody[0], midi: 64 }; // clash 해결
+    m8.bakedMelody[1] = { ...m8.bakedMelody[1], midi: 67 }; // out_of_scale 해결
+    expect(evaluateLesson('m08_coach_cleanup', m8).passed).toBe(false);
+    m8.bakedMelody[7] = { ...m8.bakedMelody[7], midi: 60 }; // weak_cadence 해결
+    expect(evaluateLesson('m08_coach_cleanup', m8).passed).toBe(true);
+
+    // 9: 1마디 모티프 2~4마디 직접 변주
+    const m9 = createLessonProject('m09_manual_motif');
+    m9.bakedMelody.push(
+      { id: 'b2_1', midi: 62, step: 16, duration: 4, velocity: 0.82 },
+      { id: 'b2_2', midi: 64, step: 22, duration: 2, velocity: 0.76 },
+      { id: 'b2_3', midi: 67, step: 24, duration: 4, velocity: 0.82 },
+      { id: 'b3_1', midi: 69, step: 32, duration: 4, velocity: 0.82 },
+      { id: 'b3_2', midi: 71, step: 38, duration: 2, velocity: 0.76 }
+    );
+    expect(evaluateLesson('m09_manual_motif', m9).passed).toBe(false);
+    m9.bakedMelody.push(
+      { id: 'b4_1', midi: 69, step: 48, duration: 4, velocity: 0.82 },
+      { id: 'b4_2', midi: 72, step: 56, duration: 6, velocity: 0.86 }
+    );
+    expect(evaluateLesson('m09_manual_motif', m9).passed).toBe(true);
+  });
+
+  it('Unit 4 (10..12): 8-bar climax, Canon transposition & full pipeline master', () => {
     // 10
-    const m10 = createLessonProject('m10_l2_jazz_combo');
-    m10.blocks.progressionId = 'lofi_2516';
-    m10.chain = unpackBlocksToChain(m10.blocks, m10.bars, m10.chain.modifiers);
+    const m10 = createLessonProject('m10_eight_climax');
+    m10.bars = 8;
+    m10.chain = unpackBlocksToChain(m10.blocks, 8, m10.chain.modifiers);
+    expect(evaluateLesson('m10_eight_climax', m10).passed).toBe(false);
     m10.chain.modifiers = m10.chain.modifiers.map((m) =>
-      m.id === 'motif_repeat' ? { ...m, enabled: true, amount: 0.7 } : m
-    );
-    expect(evaluateLesson('m10_l2_jazz_combo', m10).passed).toBe(false);
-    m10.chain.modifiers = m10.chain.modifiers.map((m) =>
-      m.id === 'syncopation' ? { ...m, enabled: true, amount: 0.65 } : m
-    );
-    expect(evaluateLesson('m10_l2_jazz_combo', m10).passed).toBe(true);
-  });
-
-  it('Unit 3 (11..15): L3 precision editing & theory coach', () => {
-    // 11
-    const m11 = createLessonProject('lesson_4_chord_tones');
-    m11.bakedMelody[0] = { ...m11.bakedMelody[0], midi: 64 };
-    m11.bakedMelody[3] = { ...m11.bakedMelody[3], midi: 74 };
-    expect(evaluateLesson('lesson_4_chord_tones', m11).passed).toBe(false);
-    m11.bakedMelody.push(
-      { id: 'fix_3', midi: 69, step: 32, duration: 4, velocity: 0.82 },
-      { id: 'fix_4', midi: 65, step: 48, duration: 4, velocity: 0.82 }
-    );
-    expect(evaluateLesson('lesson_4_chord_tones', m11).passed).toBe(true);
-
-    // 12
-    const m12 = createLessonProject('lesson_3_cadence_fix');
-    m12.bakedMelody[m12.bakedMelody.length - 1] = {
-      ...m12.bakedMelody[m12.bakedMelody.length - 1],
-      midi: 71,
-    };
-    expect(evaluateLesson('lesson_3_cadence_fix', m12).passed).toBe(false);
-    const cadReport = analyzeSong(compileSong(m12), m12);
-    const fixed12 = cadReport.issues.find((i) => i.kind === 'weak_cadence')!.applyFix(m12);
-    expect(evaluateLesson('lesson_3_cadence_fix', fixed12).passed).toBe(true);
-
-    // 13
-    const m13 = createLessonProject('m13_wide_range');
-    m13.bakedMelody[7] = { ...m13.bakedMelody[7], midi: 65 }; // F4 clash + still narrow
-    expect(evaluateLesson('m13_wide_range', m13).passed).toBe(false);
-    m13.bakedMelody[7] = { ...m13.bakedMelody[7], midi: 72 }; // C5 -> span 64..72 = 8
-    expect(evaluateLesson('m13_wide_range', m13).passed).toBe(true);
-
-    // 14
-    const m14 = createLessonProject('m14_rhythm_breath');
-    m14.bakedMelody.pop(); // restRatio=12.5%, still monotone
-    expect(evaluateLesson('m14_rhythm_breath', m14).passed).toBe(false);
-    m14.bakedMelody.pop(); // restRatio=25%
-    m14.bakedMelody[0] = { ...m14.bakedMelody[0], duration: 4 };
-    m14.bakedMelody[2] = { ...m14.bakedMelody[2], duration: 4 };
-    expect(evaluateLesson('m14_rhythm_breath', m14).passed).toBe(true);
-
-    // 15
-    const m15 = createLessonProject('m15_coach_clean');
-    m15.bakedMelody[0] = { ...m15.bakedMelody[0], midi: 64 }; // clash만 고침 (종지 남아있어 92점)
-    expect(evaluateLesson('m15_coach_clean', m15).passed).toBe(false);
-    m15.bakedMelody[7] = { ...m15.bakedMelody[7], midi: 60 }; // C4 종지 해결 -> 100점
-    expect(evaluateLesson('m15_coach_clean', m15).passed).toBe(true);
-  });
-
-  it('Unit 4 (16..20): 8-bar songs & transposition', () => {
-    // 16
-    const m16 = createLessonProject('lesson_6_eight_bars');
-    m16.bars = 8;
-    m16.chain = unpackBlocksToChain(m16.blocks, 8, m16.chain.modifiers);
-    expect(evaluateLesson('lesson_6_eight_bars', m16).passed).toBe(false);
-    m16.chain.modifiers = m16.chain.modifiers.map((m) =>
       m.id === 'octave_lift' ? { ...m, enabled: true, amount: 0.75 } : m
     );
-    expect(evaluateLesson('lesson_6_eight_bars', m16).passed).toBe(true);
+    expect(evaluateLesson('m10_eight_climax', m10).passed).toBe(true);
 
-    // 17
-    const m17 = createLessonProject('m17_minor_eight');
-    m17.bars = 8;
-    m17.mode = 'minor';
-    expect(evaluateLesson('m17_minor_eight', m17).passed).toBe(false);
-    m17.blocks.progressionId = 'sad_6415';
-    m17.chain = unpackBlocksToChain(m17.blocks, 8, m17.chain.modifiers);
-    expect(evaluateLesson('m17_minor_eight', m17).passed).toBe(true);
+    // 11
+    const m11 = createLessonProject('m11_transpose_canon');
+    m11.blocks.progressionId = 'canon';
+    m11.chain = unpackBlocksToChain(m11.blocks, 8, m11.chain.modifiers);
+    m11.blocks.grooveId = 'lofi_chill';
+    expect(evaluateLesson('m11_transpose_canon', m11).passed).toBe(false);
+    m11.keyRoot = 7; // G
+    const res11 = evaluateLesson('m11_transpose_canon', m11);
+    expect(res11.passed, JSON.stringify(res11.checks)).toBe(true);
 
-    // 18
-    const m18 = createLessonProject('m18_canon_modern');
-    m18.blocks.progressionId = 'canon';
-    m18.chain = unpackBlocksToChain(m18.blocks, 8, m18.chain.modifiers);
-    m18.blocks.grooveId = 'lofi_chill';
-    expect(evaluateLesson('m18_canon_modern', m18).passed).toBe(false);
-    m18.chain.modifiers = m18.chain.modifiers.map((m) =>
-      m.id === 'motif_repeat' ? { ...m, enabled: true, amount: 0.75 } : m
+    // 12: 풀 파이프라인 마스터 (L1/L2 -> L3 직접 수정 2음 이상 + 90점+)
+    const m12 = createLessonProject('m12_final_master');
+    m12.bars = 8;
+    m12.chain = unpackBlocksToChain(m12.blocks, 8, m12.chain.modifiers);
+    m12.chain.modifiers = m12.chain.modifiers.map((m) =>
+      m.id === 'octave_lift' ? { ...m, enabled: true, amount: 0.75 } : m
     );
-    expect(evaluateLesson('m18_canon_modern', m18).passed).toBe(true);
-
-    // 19
-    const m19 = createLessonProject('m19_transpose_key');
-    m19.keyRoot = 5;
-    expect(evaluateLesson('m19_transpose_key', m19).passed).toBe(false);
-    m19.keyRoot = 7;
-    expect(evaluateLesson('m19_transpose_key', m19).passed).toBe(true);
-
-    // 20
-    const m20 = createLessonProject('m20_final_master');
-    m20.bars = 8;
-    m20.chain = unpackBlocksToChain(m20.blocks, 8, m20.chain.modifiers);
-    m20.chain.modifiers = m20.chain.modifiers.map((m) =>
-      m.id === 'motif_repeat' || m.id === 'octave_lift' ? { ...m, enabled: true, amount: 0.75 } : m
+    expect(evaluateLesson('m12_final_master', m12).passed).toBe(false);
+    const compiled12 = compileSong(m12);
+    m12.baked = true;
+    m12.bakedMelody = compiled12.melody.map((n, idx) =>
+      idx < 2 ? { ...n, origin: 'user' as const } : { ...n, origin: 'base' as const }
     );
-    expect(evaluateLesson('m20_final_master', m20).passed).toBe(false);
-    m20.chain.modifiers = m20.chain.modifiers.map((m) =>
-      m.id === 'passing_tones' ? { ...m, enabled: true, amount: 0.55 } : m
-    );
-    expect(evaluateLesson('m20_final_master', m20).passed).toBe(true);
+    expect(evaluateLesson('m12_final_master', m12).passed).toBe(true);
   });
 });
