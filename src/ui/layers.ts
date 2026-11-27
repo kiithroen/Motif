@@ -1514,6 +1514,12 @@ function renderL3Body(
   const ghostLegendHtml = hasCoachDiff
     ? `<span class="legend-item"><span class="swatch swatch-ghost"></span>튜터 예시 (고스트)</span>`
     : '';
+  const diffLegendHtml =
+    hasVisualDiff && track === 'melody'
+      ? `<span class="legend-item"><span class="swatch swatch-diff-added"></span>새 음표 (테두리)</span>
+         <span class="legend-item"><span class="swatch swatch-diff-changed"></span>이동·변경 음표 (테두리)</span>
+         <span class="legend-item"><span class="swatch swatch-diff-removed"></span>이전 위치 (점선)</span>`
+      : '';
   const selCount = opts.selectedIds?.size ?? 0;
   const hasClipboard = Boolean(sharedClipboard && sharedClipboard.items.length > 0);
   const hasNotes = trackNotes.length > 0;
@@ -1568,6 +1574,7 @@ function renderL3Body(
           <span class="legend-item"><span class="swatch" style="background:#38bdf8"></span>음계/경과음 (자연스러움)</span>
           <span class="legend-item"><span class="swatch" style="background:#fb7185"></span>충돌음 (코치 주의)</span>
           ${ghostLegendHtml}
+          ${diffLegendHtml}
         </div>
         <div class="controls-row pr-controls-row">
           ${toolButtons}

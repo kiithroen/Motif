@@ -2963,8 +2963,13 @@ input[type='range'] {
 }
 
 .mini-pr-leg i.dot-added {
-  background: #fbbf24;
-  border: 1px solid #fef08a;
+  background: transparent;
+  border: 2px solid #ffffff;
+}
+
+.mini-pr-leg i.dot-changed {
+  background: transparent;
+  border: 2px solid #fb923c;
 }
 
 .mini-pr-leg i.dot-removed {
@@ -3006,15 +3011,13 @@ input[type='range'] {
 }
 
 .mini-pr-note.is-added {
-  fill: #34d399;
-  stroke: #ecfdf5;
-  stroke-width: 0.9;
+  stroke: #ffffff;
+  stroke-width: 1.4;
 }
 
 .mini-pr-note.is-changed {
-  fill: #fbbf24;
-  stroke: #fef9c3;
-  stroke-width: 0.9;
+  stroke: #fb923c;
+  stroke-width: 1.4;
 }
 
 .mini-pr-note-removed {
@@ -3049,13 +3052,13 @@ input[type='range'] {
 }
 
 .pr-note.is-diff-added .pr-note-body {
-  stroke: #6ee7b7;
-  stroke-width: 2.2;
+  stroke: #ffffff;
+  stroke-width: 2.4;
 }
 
 .pr-note.is-diff-changed .pr-note-body {
-  stroke: #fde047;
-  stroke-width: 2.2;
+  stroke: #fb923c;
+  stroke-width: 2.4;
 }
 
 .pr-diff-removed-body {
@@ -3114,4 +3117,54 @@ input[type='range'] {
 
 .main-panel .sliders-row {
   margin-bottom: 8px;
+}
+
+.mini-pr-track-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.mini-pr-leg i.dot-melody {
+  background: #38bdf8;
+}
+
+.mini-pr-leg i.dot-clash {
+  background: #fb7185;
+}
+
+.mini-pr-leg i.dot-chords {
+  background: rgba(129, 140, 248, 0.7);
+}
+
+.mini-pr-leg i.dot-bass {
+  background: rgba(45, 212, 191, 0.7);
+}
+
+.mini-pr-leg i.dot-kick {
+  background: rgba(244, 114, 182, 0.9);
+}
+
+.mini-pr-leg i.dot-snare {
+  background: rgba(251, 191, 36, 0.9);
+}
+
+.mini-pr-leg i.dot-hat {
+  background: rgba(148, 163, 184, 0.8);
+}
+
+.swatch-diff-added {
+  background: transparent;
+  border: 2px solid #ffffff;
+}
+
+.swatch-diff-changed {
+  background: transparent;
+  border: 2px solid #fb923c;
+}
+
+.swatch-diff-removed {
+  background: rgba(251, 113, 133, 0.2);
+  border: 1.5px dashed #fb7185;
 }

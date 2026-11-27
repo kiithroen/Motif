@@ -33,6 +33,7 @@ describe('miniPianoRoll and visualDiff integration', () => {
 
     expect(container.querySelector('.mini-pr-card')).not.toBeNull();
     expect(container.querySelector('.mini-pr-svg')).not.toBeNull();
+    expect(container.querySelector('.mini-pr-track-legend')?.textContent).toContain('베이스');
     expect(container.querySelector('.mini-pr-diff-bar')?.textContent).toContain('코드 진행 변경');
 
     const firstBar = container.querySelector<SVGRectElement>('[data-mini-bar="2"]');
@@ -79,6 +80,8 @@ describe('miniPianoRoll and visualDiff integration', () => {
     });
 
     expect(container.querySelector('.pr-diff-badge')?.textContent).toContain('코치 적용');
+    expect(container.querySelector('.legend .swatch-diff-changed')).not.toBeNull();
+    expect(container.querySelector('.legend .swatch-diff-removed')).not.toBeNull();
     expect(container.querySelector('.pr-note.is-diff-changed')).not.toBeNull();
     expect(container.querySelector('.pr-diff-removed-note')).not.toBeNull();
   });

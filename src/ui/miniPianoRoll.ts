@@ -218,7 +218,8 @@ export function renderMiniPianoRollHtml(
       <div class="mini-pr-diff-bar${modeClass}">
         <span class="mini-pr-diff-text">${prefix}${escapeHtml(diff.summaryText)}</span>
         <div class="mini-pr-diff-legend">
-          <span class="mini-pr-leg"><i class="dot-added"></i>새/변경 음표</span>
+          <span class="mini-pr-leg"><i class="dot-added"></i>새 음표</span>
+          <span class="mini-pr-leg"><i class="dot-changed"></i>이동·변경 음표</span>
           <span class="mini-pr-leg"><i class="dot-removed"></i>이전 위치</span>
           <button class="btn btn-chip" id="btn-mini-pr-clear-diff" type="button">${clearLabel}</button>
         </div>
@@ -255,7 +256,17 @@ export function renderMiniPianoRollHtml(
       ${
         collapsed
           ? ''
-          : `<div class="mini-pr-canvas-wrap" title="마디를 클릭하면 해당 마디로 이동한다">${svgHtml}</div>`
+          : `<div class="mini-pr-canvas-wrap" title="마디를 클릭하면 해당 마디로 이동한다">${svgHtml}</div>
+      <div class="mini-pr-track-legend" aria-label="미니 피아노롤 색 범례">
+        <span class="mini-pr-leg"><i class="dot-melody"></i>멜로디</span>
+        <span class="mini-pr-leg"><i class="dot-clash"></i>충돌음</span>
+        <span class="mini-pr-leg"><i class="dot-chords"></i>코드 반주</span>
+        <span class="mini-pr-leg"><i class="dot-bass"></i>베이스</span>
+        <span class="mini-pr-leg"><i class="dot-kick"></i>킥</span>
+        <span class="mini-pr-leg"><i class="dot-snare"></i>스네어</span>
+        <span class="mini-pr-leg"><i class="dot-hat"></i>그 외 드럼</span>
+        <span class="mini-pr-leg">세로 위치 = 음높이 (드럼은 맨 아래 띠)</span>
+      </div>`
       }
     </section>
   `;
